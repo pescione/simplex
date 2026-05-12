@@ -249,11 +249,5 @@ v2     a21  a22  ...  a2n | b2
 
 MIT License
 
-## 👤 Autore
-
-Applicazione didattica per l'insegnamento del metodo del simplesso.
-
----
-
 **Versione**: 1.0.0  
 **Ultimo aggiornamento**: 2026
