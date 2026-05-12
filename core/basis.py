@@ -34,6 +34,16 @@ def is_unit_column(A: list[list[Fraction]], col_idx: int) -> tuple[bool, int | N
             return False, None
 
     if one_count == 1:
+        # Accettiamo altri valori nella stessa riga purché non siano
+        # uguali a 1: se un'altra colonna ha 1 nella stessa riga,
+        # allora non si tratta di una colonna unitaria valida per la
+        # base (conflitto di 1 sulla stessa riga).
+        num_cols = len(A[0])
+        for j in range(num_cols):
+            if j == col_idx:
+                continue
+            if A[one_row][j] == Fraction(1):
+                return False, None
         return True, one_row
     else:
         return False, None

@@ -3,6 +3,7 @@ Parser per l'input testuale del problema di programmazione lineare.
 """
 
 import ast
+import re
 from fractions import Fraction
 from .models import LinearProblem
 
@@ -30,7 +31,7 @@ def parse_fraction(value: str) -> Fraction:
     # Prova a interpretare come Fraction
     try:
         return Fraction(value)
-    except ValueError:
+    except (ValueError, ZeroDivisionError):
         raise ValueError(f"Non riesco a interpretare '{value}' come frazione o numero decimale")
 
 
@@ -53,32 +54,24 @@ def parse_fraction_list(s: str) -> list[Fraction]:
     """
     s = s.strip()
 
-    # Rimuovi gli spazi e le parentesi quadre
+    # Aspettiamo una lista Python; usiamo ast.literal_eval dopo aver
+    # quotato eventuali frazioni come "a/b" perché ast.non accetta
+    # espressioni come 1/2 (sono BinOp)
+    s = s.strip()
     if not s.startswith("[") or not s.endswith("]"):
         raise ValueError(f"Lista deve iniziare con '[' e terminare con ']': {s}")
 
-    s = s[1:-1].strip()
-
-    if not s:
+    inner = s[1:-1].strip()
+    if not inner:
         return []
 
-    # Dividi per virgola, ma gestisci le frazioni (che contengono "/")
-    elements = []
-    current = ""
-    for char in s:
-        if char == "," and "/" not in current:
-            elements.append(current.strip())
-            current = ""
-        else:
-            current += char
-    if current.strip():
-        elements.append(current.strip())
+    # Trova tutti i numeri: frazioni (a/b), float e interi
+    pattern = r"-?\d+/\d+|-?\d+\.\d+|-?\d+"
+    matches = re.findall(pattern, inner)
+    if not matches:
+        raise ValueError(f"Nessun numero valido trovato nella lista: {s}")
 
-    # Converti ogni elemento in Fraction
-    result = []
-    for elem in elements:
-        result.append(parse_fraction(elem))
-
+    result = [parse_fraction(m) for m in matches]
     return result
 
 
@@ -105,21 +98,23 @@ def parse_matrix(s: str) -> list[list[Fraction]]:
     if not s.startswith("[[") or not s.endswith("]]"):
         raise ValueError(f"Matrice deve iniziare con '[[' e terminare con ']]': {s}")
 
-    # Usa ast.literal_eval per parsare, ma con un controllo di sicurezza
-    try:
-        matrix = ast.literal_eval(s)
-    except (ValueError, SyntaxError) as e:
-        raise ValueError(f"Errore nel parsing della matrice: {e}")
-
-    # Verifica che sia una lista di liste
-    if not isinstance(matrix, list):
-        raise ValueError("La matrice deve essere una lista")
+    # Split delle righe: rimuovi le due parentesi esterne e dividi su '],['
+    inner = s[1:-1].strip()
+    # Se inner è qualcosa come '[1,2], [3,4]' vogliamo separare le righe
+    rows = re.split(r"\],\s*\[", inner)
+    cleaned_rows = []
+    for i, row in enumerate(rows):
+        r = row.strip()
+        if i == 0 and r.startswith("["):
+            r = r[1:]
+        if i == len(rows) - 1 and r.endswith("]"):
+            r = r[:-1]
+        cleaned_rows.append(r)
 
     result = []
-    for row in matrix:
-        if not isinstance(row, list):
-            raise ValueError("Ogni riga della matrice deve essere una lista")
-        result.append([parse_fraction(str(x)) for x in row])
+    for row in cleaned_rows:
+        row_s = f"[{row}]"
+        result.append(parse_fraction_list(row_s))
 
     return result
 

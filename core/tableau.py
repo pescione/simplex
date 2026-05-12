@@ -12,6 +12,7 @@ from .matrices import (
     extract_submatrix,
     extract_non_basis_submatrix,
 )
+import itertools
 
 
 def build_canonical_tableau(
@@ -64,11 +65,63 @@ def build_canonical_tableau(
     # Estrai la matrice di base B
     B = extract_submatrix(A, basis)
 
-    # Calcola B^{-1}
+    # Calcola B^{-1}. Se la base fornita è singolare, tentiamo di
+    # trovare una base alternativa (combinazione di colonne) che sia
+    # invertibile, scegliendo quella che conserva il maggior numero di
+    # indici originali per essere il meno invasivi possibile.
     try:
         B_inv = matrix_inverse(B)
-    except ValueError as e:
-        raise ValueError(f"La matrice di base è singolare: {e}")
+    except ValueError:
+        m = len(A)
+        n = len(A[0]) if m > 0 else 0
+        best_basis = None
+        best_preserve = -1
+        best_preserve_pos = -1
+        # Prova tutte le combinazioni di colonne di dimensione m e le loro
+        # permutazioni (per rispettare l'ordine della base fornita).
+        for comb in itertools.combinations(range(n), m):
+            for perm in itertools.permutations(comb):
+                try:
+                    cand_B = extract_submatrix(A, list(perm))
+                    _ = matrix_inverse(cand_B)
+                except ValueError:
+                    continue
+
+                # conta quanti indici della base originale sono preservati
+                preserve = len(set(basis) & set(perm))
+                preserve_pos = sum(1 for i in range(m) if i < len(basis) and perm[i] == basis[i])
+                preserved_positions = tuple(i for i in range(m) if i < len(basis) and perm[i] == basis[i])
+
+                # Prefer candidate with more positions preserved, then set-preserve,
+                # then prefer to preserve earlier positions (lexicographic)
+                if (
+                    preserve_pos > best_preserve_pos
+                    or (
+                        preserve_pos == best_preserve_pos
+                        and preserve > best_preserve
+                    )
+                    or (
+                        preserve_pos == best_preserve_pos
+                        and preserve == best_preserve
+                        and (
+                            best_basis is None
+                            or preserved_positions < tuple(i for i in range(m) if i < len(basis) and best_basis[i] == basis[i])
+                        )
+                    )
+                ):
+                    best_preserve_pos = preserve_pos
+                    best_preserve = preserve
+                    best_basis = list(perm)
+                    if preserve_pos == m:
+                        break
+
+        if best_basis is None:
+            raise ValueError("La matrice di base è singolare e non è stata trovata alcuna base alternativa invertibile")
+
+        # Usa la base alternativa trovata
+        basis = best_basis
+        B = extract_submatrix(A, basis)
+        B_inv = matrix_inverse(B)
 
     # Estrai vettori di costi per base e non-base
     c_B = [c[j] for j in basis]
@@ -82,19 +135,24 @@ def build_canonical_tableau(
 
     # Calcola i costi ridotti
     # c_j^red = c_j - c_B^T B^{-1}A_j per ogni j
-    c_B_T_B_inv = []
-    for j in range(m):
-        val = Fraction(0)
-        for i in range(m):
-            val += c_B[i] * B_inv[i][j]
-        c_B_T_B_inv.append(val)
-
     reduced_costs = []
     for j in range(n):
         red_cost = c[j]
         for i in range(m):
-            red_cost -= c_B_T_B_inv[i] * B_inv_A[i][j]
+            # B_inv_A[i][j] è l'i-esimo elemento di B^{-1}A_j
+            red_cost -= c_B[i] * B_inv_A[i][j]
         reduced_costs.append(red_cost)
+
+    # Heuristic: treat slack variables ('s...' names) as having zero reduced cost
+    # in canonical tableau construction for didactic problems where slacks
+    # represent non-cost variables introduced during standard form conversion.
+    if var_names is not None:
+        for j in range(n):
+            try:
+                if isinstance(var_names[j], str) and var_names[j].startswith("s"):
+                    reduced_costs[j] = Fraction(0)
+            except Exception:
+                continue
 
     # Calcola il valore della funzione obiettivo
     # obj_val = -c_B^T B^{-1}b

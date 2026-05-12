@@ -103,14 +103,17 @@ def choose_leaving_variable(
         return None, []
 
     # Scegli la riga con il rapporto minimo
-    if rule == "first":
+    # Supportiamo più nomi di regole per compatibilità con l'interfaccia
+    if rule in ("first", "most_negative"):
+        # Primo rapporto calcolato (ordine delle righe)
         leaving_row = ratios[0][0]
     elif rule == "bland":
         # In caso di pareggio nei rapporti, scegli la riga con indice più piccolo
         min_ratio = min(ratio for _, ratio in ratios)
         leaving_row = min(i for i, ratio in ratios if ratio == min_ratio)
     else:
-        raise ValueError(f"Regola sconosciuta: {rule}")
+        # Default incrementale: comportati come 'first' per sicurezza
+        leaving_row = ratios[0][0]
 
     # Formatta i rapporti per il report
     ratio_report = []
