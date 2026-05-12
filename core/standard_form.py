@@ -63,6 +63,7 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
     slack_vars = []
     surplus_vars = []
     artificial_vars = []
+    constraint_auxiliary_var = []  # Per ogni vincolo, l'indice della variabile ausiliaria o -1
 
     num_original_vars = len(c)
     num_new_vars = num_original_vars
@@ -72,6 +73,7 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             # Aggiungi variabile slack
             slack_var_idx = num_new_vars
             slack_vars.append(slack_var_idx)
+            constraint_auxiliary_var.append(slack_var_idx)
             num_new_vars += 1
 
             # Aggiungi colonna alla matrice A
@@ -93,6 +95,7 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             # Aggiungi variabile surplus
             surplus_var_idx = num_new_vars
             surplus_vars.append(surplus_var_idx)
+            constraint_auxiliary_var.append(surplus_var_idx)
             num_new_vars += 1
 
             # Aggiungi colonna alla matrice A
@@ -110,7 +113,9 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             )
             steps.append(step)
 
-        # Se è "=", non aggiungiamo slack o surplus
+        else:
+            # Vincolo =, nessuna variabile ausiliaria
+            constraint_auxiliary_var.append(-1)
 
     # Aggiungi valori zero per le nuove variabili nella funzione obiettivo
     while len(c) < num_new_vars:
@@ -126,6 +131,7 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
         slack_vars=slack_vars,
         surplus_vars=surplus_vars,
         artificial_vars=artificial_vars,
+        constraint_auxiliary_var=constraint_auxiliary_var,
         transformation_log=[step.description for step in steps],
     )
 

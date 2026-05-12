@@ -25,6 +25,7 @@ class TestBuildArtificialProblem:
             slack_vars=[],
             surplus_vars=[],
             artificial_vars=[],
+            constraint_auxiliary_var=[-1, -1],  # Entrambi i vincoli sono "="
         )
 
         artificial_prob, artificial_indices, steps = build_artificial_problem(std)
@@ -49,6 +50,7 @@ class TestBuildArtificialProblem:
             slack_vars=[],
             surplus_vars=[],
             artificial_vars=[],
+            constraint_auxiliary_var=[-1, -1],  # Entrambi i vincoli sono "="
         )
 
         artificial_prob, artificial_indices, steps = build_artificial_problem(std)
@@ -75,6 +77,7 @@ class TestBuildArtificialProblem:
             slack_vars=[],
             surplus_vars=[],
             artificial_vars=[],
+            constraint_auxiliary_var=[-1, -1],  # Entrambi i vincoli sono "="
         )
 
         artificial_prob, artificial_indices, steps = build_artificial_problem(std)

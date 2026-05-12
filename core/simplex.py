@@ -145,10 +145,11 @@ def simplex(
     iteration = 0
 
     # Passo iniziale: registra il tableau iniziale
+    phase_label = "II" if tableau.phase == 2 else "I"
     initial_step = Step(
-        title="Tableau iniziale fase II",
+        title=f"Tableau iniziale fase {phase_label}",
         description="Il tableau è stato inizializzato con la base corrente.",
-        phase=2,
+        phase=tableau.phase,
         tableau_before=None,
         tableau_after=current_tableau,
         notes=["Inizio dell'algoritmo del simplesso."],
@@ -163,7 +164,7 @@ def simplex(
             final_step = Step(
                 title="Soluzione ottima trovata",
                 description="Tutti i costi ridotti sono non negativi. Il tableau è ottimale.",
-                phase=2,
+                phase=tableau.phase,
                 tableau_before=current_tableau,
                 tableau_after=None,
                 notes=[f"Iterazione {iteration - 1} completata. Algoritmo terminato."],
@@ -179,7 +180,7 @@ def simplex(
             final_step = Step(
                 title="Anomalia: nessuna variabile entrante ammissibile",
                 description="Non è stata trovata nessuna variabile con costo ridotto negativo, ma il tableau non è ottimale.",
-                phase=2,
+                phase=tableau.phase,
                 tableau_before=current_tableau,
                 notes=["Possibile errore nel codice."],
             )
@@ -194,7 +195,7 @@ def simplex(
                 title="Problema illimitato",
                 description=f"La colonna della variabile {entering_var_name} ha tutti i coefficienti <= 0. "
                 f"Non esiste una variabile uscente.",
-                phase=2,
+                phase=tableau.phase,
                 tableau_before=current_tableau,
                 tableau_after=None,
                 entering_var=entering_var_name,
@@ -213,7 +214,7 @@ def simplex(
             unbounded_step = Step(
                 title="Anomalia: test dei rapporti fallito",
                 description="Impossibile trovare una riga con coefficiente positivo nella colonna entrante.",
-                phase=2,
+                phase=tableau.phase,
                 tableau_before=current_tableau,
                 notes=["Possibile errore nel codice."],
             )
@@ -227,7 +228,7 @@ def simplex(
             title=f"Iterazione {iteration}: scelta variabili",
             description=f"Variabile entrante: {entering_var_name} (costo ridotto: {get_reduced_costs(current_tableau)[entering_col]}) "
             f"\nVariabile uscente: {leaving_var_name}",
-            phase=2,
+            phase=tableau.phase,
             tableau_before=current_tableau,
             entering_var=entering_var_name,
             leaving_var=leaving_var_name,
@@ -244,7 +245,7 @@ def simplex(
             title=f"Iterazione {iteration}: pivot",
             description=f"Pivot sulla riga {leaving_row}, colonna {entering_col}. "
             f"{entering_var_name} entra, {leaving_var_name} esce.",
-            phase=2,
+            phase=tableau.phase,
             tableau_before=current_tableau,
             tableau_after=new_tableau,
             entering_var=entering_var_name,
@@ -261,7 +262,7 @@ def simplex(
     final_step = Step(
         title="Limite massimo di iterazioni raggiunto",
         description=f"L'algoritmo non è converso entro {options.max_iterations} iterazioni. Possibile degenerazione o ciclo.",
-        phase=2,
+        phase=tableau.phase,
         tableau_before=current_tableau,
         notes=[f"Ultime iterazioni eseguite: {iteration}"],
     )

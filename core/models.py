@@ -45,6 +45,7 @@ class StandardProblem:
         slack_vars: indici delle variabili slack
         surplus_vars: indici delle variabili surplus
         artificial_vars: indici delle variabili artificiali
+        constraint_auxiliary_var: per ogni vincolo, indice della variabile ausiliaria (slack/surplus) o -1 se nessuna
         transformation_log: lista descrittiva delle trasformazioni effettuate
     """
     c: list[Fraction]
@@ -55,6 +56,7 @@ class StandardProblem:
     slack_vars: list[int] = field(default_factory=list)
     surplus_vars: list[int] = field(default_factory=list)
     artificial_vars: list[int] = field(default_factory=list)
+    constraint_auxiliary_var: list[int] = field(default_factory=list)
     transformation_log: list[str] = field(default_factory=list)
 
 

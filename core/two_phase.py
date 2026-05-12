@@ -20,11 +20,12 @@ def build_artificial_problem(
         x >= 0
 
     Costruisce:
-        min y1 + y2 + ... + ym
+        min y1 + y2 + ... + yk
         Ax + Iy = b
         x, y >= 0
 
-    dove y_i sono le variabili artificiali.
+    dove y_i sono le variabili artificiali, aggiunte solo ai vincoli che non hanno
+    slack o surplus.
 
     Args:
         std: problema in forma standard
@@ -39,22 +40,41 @@ def build_artificial_problem(
     steps = []
 
     m = len(std.b)  # numero di vincoli
-    n = len(std.c)  # numero di variabili originali
+    n = len(std.c)  # numero di variabili originali (incluso slack/surplus)
+
+    # Determina quali vincoli richiedono variabili artificiali
+    # Un vincolo richiede artificiale se:
+    # 1. Non ha slack/surplus (vincolo = originale), oppure
+    # 2. Ha surplus (vincolo >= originale) - il surplus da solo non forma base ammissibile
+    artificial_indices_per_constraint = []  # Per ogni vincolo, -1 se non necessita artificiale, altrimenti indice futura
+    num_artificial = 0
+    for i in range(m):
+        if std.constraint_auxiliary_var[i] == -1:
+            # Vincolo =: richiede artificiale
+            artificial_indices_per_constraint.append(num_artificial)
+            num_artificial += 1
+        elif std.constraint_auxiliary_var[i] in std.surplus_vars:
+            # Vincolo >= con surplus: richiede anche artificiale per base iniziale
+            artificial_indices_per_constraint.append(num_artificial)
+            num_artificial += 1
+        else:
+            # Vincolo <= con slack: non richiede artificiale
+            artificial_indices_per_constraint.append(-1)
 
     # Costruisci il nuovo vettore c (tutti zeri per le variabili originali, 1 per le artificiali)
     c_artificial = list(std.c)  # copia
-    while len(c_artificial) < n + m:
+    while len(c_artificial) < n + num_artificial:
         c_artificial.append(Fraction(0))
-    for i in range(m):
+    for i in range(num_artificial):
         c_artificial[n + i] = Fraction(1)
 
     # Costruisci la nuova matrice A (aggiungi colonne per le variabili artificiali)
     A_artificial = []
     for i, row in enumerate(std.A):
         new_row = list(row)
-        # Aggiungi colonne per le variabili artificiali (identità)
-        for j in range(m):
-            if i == j:
+        # Aggiungi colonne per le variabili artificiali
+        for j in range(num_artificial):
+            if artificial_indices_per_constraint[i] == j:
                 new_row.append(Fraction(1))
             else:
                 new_row.append(Fraction(0))
@@ -63,7 +83,7 @@ def build_artificial_problem(
     # Costruisci i nuovi nomi delle variabili
     var_names_artificial = list(std.var_names)
     artificial_indices = []
-    for i in range(m):
+    for i in range(num_artificial):
         artificial_indices.append(len(var_names_artificial))
         var_names_artificial.append(f"y{i + 1}")
 
@@ -77,12 +97,13 @@ def build_artificial_problem(
         slack_vars=std.slack_vars,
         surplus_vars=std.surplus_vars,
         artificial_vars=artificial_indices,
+        constraint_auxiliary_var=std.constraint_auxiliary_var,
         transformation_log=std.transformation_log + ["Costruzione del problema artificiale per la fase I"],
     )
 
     step = Step(
         title="Costruzione del problema artificiale",
-        description=f"Aggiunto {m} variabili artificiali per ottenere una base iniziale ammissibile.",
+        description=f"Aggiunto {num_artificial} variabili artificiali per i vincoli senza slack/surplus.",
         phase=1,
         notes=[
             f"La fase I minimizzerà la somma delle variabili artificiali.",
@@ -116,10 +137,26 @@ def run_phase_one(
     artificial_problem, artificial_indices, construction_steps = build_artificial_problem(std, options)
     steps.extend(construction_steps)
 
-    # La base iniziale è formata dalle variabili artificiali
-    basis = list(range(len(artificial_problem.b)))
-    for i, idx in enumerate(artificial_indices):
-        basis[i] = idx
+    # La base iniziale è formata dalle variabili artificiali e slack
+    # Le variabili surplus non vengono usate direttamente in base; servono solo a trasformare >= in =
+    basis = []
+    
+    # Per ogni vincolo, determina quale variabile entra in base
+    for i in range(len(std.b)):
+        if std.constraint_auxiliary_var[i] != -1 and std.constraint_auxiliary_var[i] not in std.surplus_vars:
+            # Questo vincolo ha slack (non surplus), lo usiamo in base
+            basis.append(std.constraint_auxiliary_var[i])
+        else:
+            # Questo vincolo non ha slack (ha surplus o niente), usiamo la variabile artificiale
+            # Conta quanti vincoli prima di questo richiedono una variabile artificiale
+            artificial_count = 0
+            for j in range(i):
+                aux_var = std.constraint_auxiliary_var[j]
+                if aux_var == -1 or aux_var in std.surplus_vars:
+                    artificial_count += 1
+            # L'indice della variabile artificiale è: len(std.c) + artificial_count
+            artificial_idx = len(std.c) + artificial_count
+            basis.append(artificial_idx)
 
     # Costruisci il tableau canonico della fase I
     try:
@@ -145,7 +182,7 @@ def run_phase_one(
     # Registra il tableau iniziale della fase I
     initial_step = Step(
         title="Tableau iniziale fase I",
-        description="Il tableau è stato costruito con base formata dalle variabili artificiali.",
+        description="Il tableau è stato costruito con base formata dalle variabili artificiali, slack e surplus.",
         phase=1,
         tableau_before=None,
         tableau_after=tableau_phase1,
@@ -158,7 +195,8 @@ def run_phase_one(
     steps.extend(simplex_steps)
 
     # Controlla il risultato della fase I
-    w_star = get_objective_value(final_tableau)
+    # Nel tableau, il RHS della riga 0 è il negativo di w, quindi invertiamo il segno
+    w_star = -get_objective_value(final_tableau)
 
     if w_star > 0:
         # Problema inammissibile
