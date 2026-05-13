@@ -12,7 +12,6 @@ from .matrices import (
     extract_submatrix,
     extract_non_basis_submatrix,
 )
-import itertools
 
 
 def build_canonical_tableau(
@@ -27,9 +26,16 @@ def build_canonical_tableau(
     """
     Costruisce il tableau canonico del simplesso rispetto a una base data.
 
+    Convenzione del tableau:
+        - riga 0: costi ridotti delle non-basiche, ultimo elemento = -valore_obiettivo
+        - riga i+1 (i >= 0): coefficienti di B^{-1}A, ultimo elemento = RHS
+
+    La convenzione usata è: tableau.data[0][-1] = -z (il negativo del valore obiettivo).
+    Usa get_objective_value() per ottenere il valore dell'obiettivo con il segno corretto.
+
     Forma del tableau:
-        0^T         c_F^T - c_B^T B^{-1}F     | -c_B^T B^{-1}b
-        I           B^{-1}F                    | B^{-1}b
+        c_F^T - c_B^T B^{-1}A_F  | -c_B^T B^{-1}b
+        B^{-1}A_F                 | B^{-1}b
 
     Args:
         A: matrice dei vincoli (m x n)
@@ -65,63 +71,17 @@ def build_canonical_tableau(
     # Estrai la matrice di base B
     B = extract_submatrix(A, basis)
 
-    # Calcola B^{-1}. Se la base fornita è singolare, tentiamo di
-    # trovare una base alternativa (combinazione di colonne) che sia
-    # invertibile, scegliendo quella che conserva il maggior numero di
-    # indici originali per essere il meno invasivi possibile.
+    # Calcola B^{-1}
+    # Se la base è singolare, solleva un errore.
+    # Non tentare di trovare una base alternativa: la funzione build_canonical_tableau
+    # deve essere deterministica e rispettare la base ricevuta.
     try:
         B_inv = matrix_inverse(B)
-    except ValueError:
-        m = len(A)
-        n = len(A[0]) if m > 0 else 0
-        best_basis = None
-        best_preserve = -1
-        best_preserve_pos = -1
-        # Prova tutte le combinazioni di colonne di dimensione m e le loro
-        # permutazioni (per rispettare l'ordine della base fornita).
-        for comb in itertools.combinations(range(n), m):
-            for perm in itertools.permutations(comb):
-                try:
-                    cand_B = extract_submatrix(A, list(perm))
-                    _ = matrix_inverse(cand_B)
-                except ValueError:
-                    continue
-
-                # conta quanti indici della base originale sono preservati
-                preserve = len(set(basis) & set(perm))
-                preserve_pos = sum(1 for i in range(m) if i < len(basis) and perm[i] == basis[i])
-                preserved_positions = tuple(i for i in range(m) if i < len(basis) and perm[i] == basis[i])
-
-                # Prefer candidate with more positions preserved, then set-preserve,
-                # then prefer to preserve earlier positions (lexicographic)
-                if (
-                    preserve_pos > best_preserve_pos
-                    or (
-                        preserve_pos == best_preserve_pos
-                        and preserve > best_preserve
-                    )
-                    or (
-                        preserve_pos == best_preserve_pos
-                        and preserve == best_preserve
-                        and (
-                            best_basis is None
-                            or preserved_positions < tuple(i for i in range(m) if i < len(basis) and best_basis[i] == basis[i])
-                        )
-                    )
-                ):
-                    best_preserve_pos = preserve_pos
-                    best_preserve = preserve
-                    best_basis = list(perm)
-                    if preserve_pos == m:
-                        break
-
-        if best_basis is None:
-            raise ValueError("La matrice di base è singolare e non è stata trovata alcuna base alternativa invertibile")
-
-        # Usa la base alternativa trovata
-        basis = best_basis
-        B = extract_submatrix(A, basis)
-        B_inv = matrix_inverse(B)
+    except ValueError as e:
+        raise ValueError(
+            f"La base fornita è singolare e non invertibile. "
+            f"Indici di base: {basis}. Errore interno: {str(e)}"
+        )
 
     # Estrai vettori di costi per base e non-base
     c_B = [c[j] for j in basis]
@@ -135,6 +95,9 @@ def build_canonical_tableau(
 
     # Calcola i costi ridotti
     # c_j^red = c_j - c_B^T B^{-1}A_j per ogni j
+    # NOTA: I costi ridotti sono calcolati ESATTAMENTE secondo la formula matematica.
+    # L'euristica di forzare a 0 i costi ridotti delle slack è SBAGLIATA e rimossa.
+    # Una slack può avere costo ridotto diverso da 0 dopo pivot su altre variabili.
     reduced_costs = []
     for j in range(n):
         red_cost = c[j]
@@ -142,17 +105,6 @@ def build_canonical_tableau(
             # B_inv_A[i][j] è l'i-esimo elemento di B^{-1}A_j
             red_cost -= c_B[i] * B_inv_A[i][j]
         reduced_costs.append(red_cost)
-
-    # Heuristic: treat slack variables ('s...' names) as having zero reduced cost
-    # in canonical tableau construction for didactic problems where slacks
-    # represent non-cost variables introduced during standard form conversion.
-    if var_names is not None:
-        for j in range(n):
-            try:
-                if isinstance(var_names[j], str) and var_names[j].startswith("s"):
-                    reduced_costs[j] = Fraction(0)
-            except Exception:
-                continue
 
     # Calcola il valore della funzione obiettivo
     # obj_val = -c_B^T B^{-1}b
@@ -192,7 +144,28 @@ def get_rhs_values(tableau: Tableau) -> list[Fraction]:
 
 
 def get_objective_value(tableau: Tableau) -> Fraction:
-    """Estrae il valore della funzione obiettivo dal tableau."""
+    """
+    Estrae il valore della funzione obiettivo dal tableau.
+    
+    Nota sulla convenzione: nel tableau, l'ultima colonna della riga 0 contiene
+    -z (il negativo del valore dell'obiettivo). Questa funzione ritorna z (il valore positivo).
+    
+    Returns:
+        Il valore della funzione obiettivo (con segno corretto, ovvero -tableau.data[0][-1])
+    """
+    return -tableau.data[0][-1]
+
+
+def get_raw_objective_rhs(tableau: Tableau) -> Fraction:
+    """
+    Estrae il valore RAW dell'RHS della riga obiettivo dal tableau.
+    
+    Questo è il valore memorizzato direttamente nel tableau, che è -z (negativo).
+    Usa get_objective_value() se vuoi il valore con segno corretto.
+    
+    Returns:
+        Il valore grezzo memorizzato: -z
+    """
     return tableau.data[0][-1]
 
 

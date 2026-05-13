@@ -14,9 +14,19 @@ def is_optimal(tableau: Tableau) -> bool:
     
     Per un problema di minimo, il tableau è ottimo se tutti i costi ridotti
     delle variabili fuori base sono >= 0.
+    
+    Nota: Le variabili basiche hanno sempre costo ridotto = 0 per costruzione,
+    quindi non è necessario controllarle esplicitamente.
     """
     reduced_costs = get_reduced_costs(tableau)
-    return all(cost >= 0 for cost in reduced_costs)
+    basis_set = set(tableau.basis)
+    
+    # Controlla che tutti i costi ridotti delle variabili non basiche siano >= 0
+    for j, cost in enumerate(reduced_costs):
+        if j not in basis_set and cost < 0:
+            return False
+    
+    return True
 
 
 def choose_entering_variable(
@@ -24,6 +34,9 @@ def choose_entering_variable(
 ) -> int | None:
     """
     Sceglie la variabile entrante in base alla regola specificata.
+    
+    Considera SOLO le variabili NON BASICHE (le variabili basiche hanno
+    costo ridotto = 0 per costruzione e non possono uscire direttamente).
 
     Args:
         tableau: tableau corrente
@@ -33,27 +46,33 @@ def choose_entering_variable(
         Indice della colonna (variabile entrante) o None se nessuna variabile è ammissibile
     """
     reduced_costs = get_reduced_costs(tableau)
+    basis_set = set(tableau.basis)
+    
+    # Filtra solo le variabili non basiche
+    non_basic_indices = [j for j in range(len(reduced_costs)) if j not in basis_set]
 
     if rule == "most_negative":
-        # Scegli il costo ridotto più negativo
+        # Scegli il costo ridotto più negativo tra le variabili non basiche
         min_cost = Fraction(0)
         min_col = None
-        for j, cost in enumerate(reduced_costs):
+        for j in non_basic_indices:
+            cost = reduced_costs[j]
             if cost < min_cost:
                 min_cost = cost
                 min_col = j
         return min_col
 
     elif rule == "first_negative":
-        # Scegli la prima colonna con costo ridotto negativo
-        for j, cost in enumerate(reduced_costs):
-            if cost < 0:
+        # Scegli la prima colonna non basica con costo ridotto negativo
+        for j in non_basic_indices:
+            if reduced_costs[j] < 0:
                 return j
         return None
 
     elif rule == "bland":
-        # Scegli il costo ridotto più negativo, in caso di pareggio scegli il più piccolo indice
-        candidates = [j for j, cost in enumerate(reduced_costs) if cost < 0]
+        # Scegli il costo ridotto più negativo tra le variabili non basiche,
+        # in caso di pareggio scegli il più piccolo indice
+        candidates = [j for j in non_basic_indices if reduced_costs[j] < 0]
         if candidates:
             return min(candidates)
         return None
@@ -74,15 +93,22 @@ def is_unbounded(tableau: Tableau, entering_col: int) -> bool:
 
 
 def choose_leaving_variable(
-    tableau: Tableau, entering_col: int, rule: str = "most_negative"
+    tableau: Tableau, entering_col: int, rule: str = "bland"
 ) -> tuple[int | None, list[tuple[str, Fraction]]]:
     """
     Esegue il test dei rapporti per scegliere la variabile uscente.
 
+    Il test dei rapporti calcola per ogni riga i con coefficiente > 0
+    nella colonna entrante: rapporto_i = RHS_i / a_{i,entering_col}
+    
+    Scegli la riga con il rapporto minimo. In caso di parità:
+    - rule="min_ratio": scegli la prima riga (ordine naturale)
+    - rule="bland": scegli la riga con l'indice più piccolo della variabile basica
+    
     Args:
         tableau: tableau corrente
         entering_col: indice della colonna entrante
-        rule: "first", "bland" (per gestire i pareggi)
+        rule: "min_ratio", "bland" (per gestire i pareggi)
 
     Returns:
         (indice della riga dove avviene il pivot, lista dei rapporti)
@@ -102,22 +128,23 @@ def choose_leaving_variable(
         # Nessun coefficiente positivo: il problema è illimitato
         return None, []
 
-    # Scegli la riga con il rapporto minimo
-    # Supportiamo più nomi di regole per compatibilità con l'interfaccia
-    if rule in ("first", "most_negative"):
-        # Primo rapporto calcolato (ordine delle righe)
-        leaving_row = ratios[0][0]
-    elif rule == "bland":
-        # In caso di pareggio nei rapporti, scegli la riga con indice più piccolo
-        min_ratio = min(ratio for _, ratio in ratios)
-        leaving_row = min(i for i, ratio in ratios if ratio == min_ratio)
+    # Trova il rapporto minimo
+    min_ratio = min(ratio for _, ratio in ratios)
+    
+    # Tra le righe con rapporto minimo, scegli in base alla regola
+    tied_rows = [i for i, ratio in ratios if ratio == min_ratio]
+    
+    if rule == "bland":
+        # In caso di pareggio, scegli la variabile basica con indice più piccolo
+        # (oppure equivalentemente, la riga con indice più piccolo)
+        leaving_row = min(tied_rows)
     else:
-        # Default incrementale: comportati come 'first' per sicurezza
-        leaving_row = ratios[0][0]
+        # Default: scegli la prima riga con rapporto minimo
+        leaving_row = tied_rows[0]
 
     # Formatta i rapporti per il report
     ratio_report = []
-    for i, (row_idx, ratio) in enumerate(ratios):
+    for row_idx, ratio in ratios:
         var_name = tableau.var_names[tableau.basis[row_idx]]
         ratio_report.append((var_name, ratio))
 
@@ -191,6 +218,9 @@ def simplex(
 
         # Test di illimitatezza
         if is_unbounded(current_tableau, entering_col):
+            # ✅ FIX BUG 1: Significato di "unbounded" dipende dalla fase
+            # - Fase 1: ERRORE (il problema artificiale deve essere limitato inferiormente)
+            # - Fase 2: Risultato valido (il problema originale non ha limite inferiore)
             unbounded_step = Step(
                 title="Problema illimitato",
                 description=f"La colonna della variabile {entering_var_name} ha tutti i coefficienti <= 0. "
@@ -199,7 +229,8 @@ def simplex(
                 tableau_before=current_tableau,
                 tableau_after=None,
                 entering_var=entering_var_name,
-                notes=["L'obiettivo può decrescere indefinitamente."],
+                notes=["L'obiettivo può decrescere indefinitamente." if tableau.phase == 2 
+                       else "ERRORE: La Fase I non dovrebbe mai diventare illimitata."],
             )
             steps.append(unbounded_step)
             return current_tableau, steps, "unbounded"

@@ -55,9 +55,10 @@ class TestBuildArtificialProblem:
 
         artificial_prob, artificial_indices, steps = build_artificial_problem(std)
 
-        # I costi originali dovrebbero rimanere gli stessi
-        assert artificial_prob.c[0] == Fraction(1)
-        assert artificial_prob.c[1] == Fraction(2)
+        # I costi delle variabili originali nella Fase I dovrebbero essere 0
+        # (stiamo minimizzando solo le variabili artificiali)
+        assert artificial_prob.c[0] == Fraction(0)
+        assert artificial_prob.c[1] == Fraction(0)
 
         # I costi delle variabili artificiali dovrebbero essere 1
         for idx in artificial_indices:

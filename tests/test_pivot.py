@@ -35,11 +35,11 @@ class TestPivot:
         """Test che il pivot aggiorna la base correttamente."""
         A = [
             [Fraction(1), Fraction(1), Fraction(1)],
-            [Fraction(1), Fraction(0), Fraction(0)],
+            [Fraction(1), Fraction(1), Fraction(0)],
         ]
         b = [Fraction(5), Fraction(2)]
         c = [Fraction(-1), Fraction(-1), Fraction(0)]
-        basis = [2, 1]  # s1 e x2 in base
+        basis = [2, 1]  # s1 e x2 in base. Matrice B = [[1,1],[0,1]], det = 1
         var_names = ["x1", "x2", "s1"]
 
         tableau = build_canonical_tableau(A, b, c, basis, var_names)

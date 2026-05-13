@@ -29,9 +29,10 @@ class TestIsUnitColumn:
         assert row_idx == 1
 
     def test_not_unit_column(self):
+        # Testa che una colonna con due 1 non è una unit column
         A = [
             [Fraction(1), Fraction(1)],
-            [Fraction(0), Fraction(1)],
+            [Fraction(1), Fraction(1)],
         ]
         is_unit, row_idx = is_unit_column(A, 0)
         assert is_unit is False

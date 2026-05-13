@@ -169,10 +169,55 @@ def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveR
         phase1_tableau, phase1_steps, phase1_status = run_phase_one(standard_problem, options)
         all_steps.extend(phase1_steps)
 
+        # ✅ FIX BUG 3: Separare completamente la Fase I dalla Fase II
+        # Controlla i risultati possibili della Fase I
         if phase1_status == "infeasible":
+            # Stato valido: il problema originale non ha soluzioni ammissibili
             return SolveResult(
                 status="infeasible",
-                message="Il problema originale è inammissibile.",
+                message="Il problema originale è inammissibile. La Fase I ha determinato che non esiste una base ammissibile.",
+                original_problem=original_problem,
+                standard_problem=standard_problem,
+                steps=all_steps,
+                final_tableau=phase1_tableau,
+                solution=None,
+                optimal_value=None,
+            )
+        elif phase1_status == "feasible":
+            # Stato valido: esiste una base ammissibile, procediamo con la Fase II
+            pass  # Continuiamo con la preparazione della Fase II
+        elif phase1_status == "error_phase1_unbounded":
+            # Errore interno: il problema artificiale non dovrebbe mai essere illimitato
+            return SolveResult(
+                status="error_phase1",
+                message="ERRORE INTERNO: La Fase I è terminata con stato 'unbounded'. "
+                "Il problema artificiale non dovrebbe mai essere illimitato. "
+                "Controllare la costruzione del problema.",
+                original_problem=original_problem,
+                standard_problem=standard_problem,
+                steps=all_steps,
+                final_tableau=phase1_tableau,
+                solution=None,
+                optimal_value=None,
+            )
+        elif phase1_status == "error_phase1_iteration_limit":
+            # Errore: limite iterazioni raggiunto in Fase I
+            return SolveResult(
+                status="error_phase1",
+                message="La Fase I non ha raggiunto l'ottimalità entro il limite di iterazioni. "
+                "Il problema potrebbe essere degenere o molto complesso.",
+                original_problem=original_problem,
+                standard_problem=standard_problem,
+                steps=all_steps,
+                final_tableau=phase1_tableau,
+                solution=None,
+                optimal_value=None,
+            )
+        else:
+            # Stato non riconosciuto
+            return SolveResult(
+                status="error_phase1",
+                message=f"ERRORE: La Fase I ha terminato con stato sconosciuto: {phase1_status}",
                 original_problem=original_problem,
                 standard_problem=standard_problem,
                 steps=all_steps,

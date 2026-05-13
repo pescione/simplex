@@ -242,6 +242,14 @@ def parse_problem(text: str) -> LinearProblem:
         c = [...]
         ...
 
+    Il parser supporta:
+    - min/max
+    - c = [lista di numeri]
+    - A = [[lista], [lista], ...] (su una o più righe)
+    - signs = ["<=", ">=", "=", ...]
+    - b = [lista di numeri]
+    - linee vuote e commenti (righe che iniziano con #)
+
     Args:
         text: testo da parsare
 
@@ -258,8 +266,10 @@ def parse_problem(text: str) -> LinearProblem:
     signs = None
     b = None
 
-    for line in lines:
-        line = line.strip()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        i += 1
 
         if not line or line.startswith("#"):
             # Linea vuota o commento
@@ -267,6 +277,7 @@ def parse_problem(text: str) -> LinearProblem:
 
         if line.lower() in ["min", "max"]:
             sense = line.lower()
+
         elif line.startswith("c"):
             # Parse c
             parts = line.split("=", 1)
@@ -275,27 +286,22 @@ def parse_problem(text: str) -> LinearProblem:
             c = parse_fraction_list(parts[1].strip())
 
         elif line.startswith("A"):
-            # Parse A
+            # Parse A - con supporto multilinea
             parts = line.split("=", 1)
             if len(parts) != 2:
                 raise ValueError(f"Linea non valida per A: {line}")
 
-            # Gestisci il caso multi-linea
+            # Costruisci la stringa della matrice, aggregando righe fino a che non termina con ]]
             matrix_str = parts[1].strip()
-            # Se la matrice non è completa nella stessa linea, aggiungi le linee successive
-            idx = lines.index(line) + 1
-            while True:
+            while i < len(lines):
                 # Controlla se la matrice è completa (normalizzando gli spazi)
                 normalized = matrix_str.strip().replace("[ ", "[").replace(" ]", "]")
                 if normalized.endswith("]]"):
                     break
-                if idx < len(lines):
-                    next_line = lines[idx].strip()
-                    if next_line and not next_line.startswith("#"):
-                        matrix_str += " " + next_line
-                    idx += 1
-                else:
-                    break
+                next_line = lines[i].strip()
+                i += 1
+                if next_line and not next_line.startswith("#"):
+                    matrix_str += " " + next_line
 
             A = parse_matrix(matrix_str)
 

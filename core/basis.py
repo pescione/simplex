@@ -3,13 +3,18 @@ Ricerca della base iniziale per il simplesso.
 """
 
 from fractions import Fraction
+from .matrices import matrix_inverse, extract_submatrix, matrix_vector_mul
 
 
 def is_unit_column(A: list[list[Fraction]], col_idx: int) -> tuple[bool, int | None]:
     """
     Controlla se una colonna è una colonna dell'identità.
 
-    Una colonna è della forma [0, 0, ..., 1, ..., 0] con un singolo 1.
+    Una colonna è unitaria se:
+        - contiene esattamente UN valore 1;
+        - tutti gli altri valori nella colonna sono 0.
+
+    Il contenuto delle altre colonne nella stessa riga non importa.
 
     Args:
         A: matrice
@@ -33,17 +38,8 @@ def is_unit_column(A: list[list[Fraction]], col_idx: int) -> tuple[bool, int | N
         elif val != Fraction(0):
             return False, None
 
+    # Una colonna è unitaria se ha esattamente un 1
     if one_count == 1:
-        # Accettiamo altri valori nella stessa riga purché non siano
-        # uguali a 1: se un'altra colonna ha 1 nella stessa riga,
-        # allora non si tratta di una colonna unitaria valida per la
-        # base (conflitto di 1 sulla stessa riga).
-        num_cols = len(A[0])
-        for j in range(num_cols):
-            if j == col_idx:
-                continue
-            if A[one_row][j] == Fraction(1):
-                return False, None
         return True, one_row
     else:
         return False, None
@@ -70,7 +66,7 @@ def find_identity_basis(A: list[list[Fraction]]) -> list[int] | None:
     n = len(A[0]) if m > 0 else 0  # numero di colonne (variabili)
 
     # Cerca m colonne che formino l'identità
-    # Ogni riga deve avere esattamente un'1 nella sua colonna corrispondente
+    # Ogni riga deve avere esattamente un 1 nella sua colonna corrispondente
 
     # Creazione di un mapping: riga -> colonna della colonna unitaria
     row_to_col = {}
@@ -79,11 +75,12 @@ def find_identity_basis(A: list[list[Fraction]]) -> list[int] | None:
         is_unit, row_idx = is_unit_column(A, col_idx)
         if is_unit:
             if row_idx in row_to_col:
-                # Questa riga ha già un'1 in un'altra colonna, conflitto
+                # Questa riga ha già un 1 in un'altra colonna, conflitto
+                # Non è possibile formare l'identità
                 return None
             row_to_col[row_idx] = col_idx
 
-    # Controlla se tutte le righe hanno un'1
+    # Controlla se tutte le righe hanno un 1
     if len(row_to_col) == m:
         # Costruisci la lista ordinata per riga
         basis = [row_to_col[i] for i in range(m)]
@@ -98,7 +95,11 @@ def basis_is_feasible(
     """
     Controlla se una base è ammissibile, cioè B^{-1}b >= 0.
 
-    Per una base identità e b >= 0, la base è direttamente ammissibile.
+    Procedura:
+        1. Estrai B = A[:, basis]
+        2. Calcola B^{-1}
+        3. Calcola x_B = B^{-1}b
+        4. Restituisci True se tutti x_B >= 0
 
     Args:
         A: matrice
@@ -108,14 +109,32 @@ def basis_is_feasible(
     Returns:
         True se ammissibile, False altrimenti
     """
-    # Verifica che i termini noti siano tutti >= 0
-    for val in b:
-        if val < 0:
-            return False
+    if len(basis) == 0:
+        return True
 
-    # Se A è la matrice identità e b >= 0, la base è ammissibile
-    # Per una base generica, servirebbe calcolare B^{-1}b
-    # Ma in questo contesto, se la base è identità e b >= 0, è ammissibile
+    # Estrai la sottomatrice di base B
+    try:
+        B = extract_submatrix(A, basis)
+    except (ValueError, IndexError):
+        return False
+
+    # Calcola B^{-1}
+    try:
+        B_inv = matrix_inverse(B)
+    except ValueError:
+        # B è singolare, non è una base
+        return False
+
+    # Calcola x_B = B^{-1}b
+    try:
+        x_B = matrix_vector_mul(B_inv, b)
+    except (ValueError, IndexError):
+        return False
+
+    # Controlla che tutti i componenti di x_B siano >= 0
+    for x_val in x_B:
+        if x_val < 0:
+            return False
 
     return True
 

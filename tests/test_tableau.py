@@ -45,8 +45,10 @@ class TestBuildCanonicalTableau:
 
         # Controlla i costi ridotti (riga 0)
         reduced_costs = get_reduced_costs(tableau)
-        # Per la variabile x3 (s1), il costo ridotto dovrebbe essere 0 - 0 = 0
-        assert reduced_costs[2] == Fraction(0)
+        # Per la variabile s1 (colonna 2):
+        # c_reduced = c[2] - [c_B]^T * B^{-1} * A[:, 2]
+        # = 0 - [2, 3]^T · [1, -1]^T = 0 - (2*1 + 3*(-1)) = 0 - (-1) = 1
+        assert reduced_costs[2] == Fraction(1)
 
         # Controlla i termini noti (RHS)
         rhs = get_rhs_values(tableau)
