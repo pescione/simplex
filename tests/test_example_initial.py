@@ -111,6 +111,27 @@ def test_simple_inequality_problem():
         f"Valore obiettivo non corrisponde: z={result.optimal_value}, ma x1 + x2 = {computed_z}"
 
 
+def test_solution_contains_only_original_variables():
+    """Test che la soluzione pubblica non esponga variabili ausiliarie."""
+
+    problem_text = """
+    min
+    c = [1, 1]
+    A = [
+      [1, 0],
+      [0, 1]
+    ]
+    signs = ["<=", "<="]
+    b = [2, 3]
+    """
+
+    result = solve_problem(problem_text)
+
+    assert result.status == "optimal"
+    assert result.solution is not None
+    assert set(result.solution.keys()) == {"x1", "x2"}
+
+
 def test_max_problem():
     """Test di un problema di massimizzazione."""
     
@@ -187,6 +208,29 @@ def test_unbounded_problem():
     # min -x con x >= 0 è illimitato inferiormente
     assert result.status == "unbounded", \
         f"Status atteso 'unbounded', ottenuto '{result.status}'. Messaggio: {result.message}"
+
+
+def test_redundant_constraints_problem():
+    """Test di un problema con un vincolo ridondante eliminato dopo la Fase I."""
+
+    problem_text = """
+    min
+    c = [1]
+    A = [
+      [1],
+      [2]
+    ]
+    signs = ["=", "="]
+    b = [1, 2]
+    """
+
+    result = solve_problem(problem_text)
+
+    assert result.status == "optimal", \
+        f"Status atteso 'optimal', ottenuto '{result.status}'. Messaggio: {result.message}"
+    assert result.solution is not None
+    assert result.solution.get("x1", Fraction(0)) == Fraction(1)
+    assert result.optimal_value == Fraction(1)
 
 
 if __name__ == "__main__":

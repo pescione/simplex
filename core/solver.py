@@ -296,7 +296,9 @@ def extract_solution(
     """
     Estrae la soluzione dal tableau finale.
 
-    La soluzione contiene i valori di tutte le variabili (originali, slack, surplus).
+    La soluzione pubblica contiene solo le variabili originali del problema.
+    Le variabili slack/surplus sono variabili ausiliarie interne e non fanno
+    parte della soluzione finale esposta all'utente.
 
     Args:
         final_tableau: tableau finale
@@ -310,13 +312,13 @@ def extract_solution(
     # Le variabili in base hanno il valore dell'RHS della loro riga
     rhs_values = get_rhs_values(final_tableau)
 
-    # Inizializza tutte le variabili a zero
-    for i, name in enumerate(standard_problem.var_names):
+    # Inizializza solo le variabili originali a zero
+    for name in standard_problem.var_names[: standard_problem.original_var_count]:
         solution[name] = Fraction(0)
 
     # Assegna i valori alle variabili in base
     for i, var_idx in enumerate(final_tableau.basis):
-        if var_idx < len(standard_problem.var_names):
+        if var_idx < standard_problem.original_var_count:
             solution[standard_problem.var_names[var_idx]] = rhs_values[i]
 
     return solution

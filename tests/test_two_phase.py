@@ -90,3 +90,28 @@ class TestBuildArtificialProblem:
         assert artificial_prob.A[0][3] == Fraction(0)  # Seconda artificiale, primo vincolo
         assert artificial_prob.A[1][2] == Fraction(0)  # Prima artificiale, secondo vincolo
         assert artificial_prob.A[1][3] == Fraction(1)  # Seconda artificiale, secondo vincolo
+
+    def test_artificial_placement_for_ge_and_equal(self):
+        """Test che >= ed = ricevano entrambe una variabile artificiale in Fase I."""
+        std = StandardProblem(
+            c=[Fraction(1), Fraction(2), Fraction(0)],
+            A=[
+                [Fraction(1), Fraction(1), Fraction(-1)],
+                [Fraction(2), Fraction(0), Fraction(0)],
+            ],
+            b=[Fraction(3), Fraction(4)],
+            var_names=["x1", "x2", "e1"],
+            original_var_count=2,
+            slack_vars=[],
+            surplus_vars=[2],
+            artificial_vars=[],
+            constraint_auxiliary_var=[2, -1],
+        )
+
+        artificial_prob, artificial_indices, steps = build_artificial_problem(std)
+
+        assert len(artificial_indices) == 2
+        assert artificial_prob.A[0][3] == Fraction(1)
+        assert artificial_prob.A[1][4] == Fraction(1)
+        assert artificial_prob.A[0][4] == Fraction(0)
+        assert artificial_prob.A[1][3] == Fraction(0)

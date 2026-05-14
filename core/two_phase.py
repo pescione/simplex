@@ -25,8 +25,8 @@ def build_artificial_problem(
         Ax + Iy = b
         x, y >= 0
 
-    dove y_i sono le variabili artificiali, aggiunte solo ai vincoli che non hanno
-    slack o surplus.
+    dove y_i sono le variabili artificiali, aggiunte ai vincoli che non hanno
+    una base iniziale immediata, cioè ai vincoli "=" e ai vincoli ">=".
 
     Args:
         std: problema in forma standard
@@ -105,7 +105,7 @@ def build_artificial_problem(
 
     step = Step(
         title="Costruzione del problema artificiale",
-        description=f"Aggiunto {num_artificial} variabili artificiali per i vincoli senza slack/surplus.",
+        description=f"Aggiunto {num_artificial} variabili artificiali per i vincoli che richiedono una base iniziale artificiale.",
         phase=1,
         notes=[
             f"La fase I minimizzerà la somma delle variabili artificiali.",
@@ -180,7 +180,7 @@ def run_phase_one(
     # Registra il tableau iniziale della fase I
     initial_step = Step(
         title="Tableau iniziale fase I",
-        description="Il tableau è stato costruito con base formata dalle variabili artificiali, slack e surplus.",
+        description="Il tableau è stato costruito con la base iniziale determinata da slack, surplus e variabili artificiali.",
         phase=1,
         tableau_before=None,
         tableau_after=tableau_phase1,
@@ -296,28 +296,37 @@ def prepare_phase_two(
 
     # Filtra la base per rimuovere le variabili artificiali
     # Le variabili artificiali hanno indice >= num_original_vars
-    basis_phase2 = []
-    artificial_indices_in_basis = []
+    current_tableau = phase1_tableau
 
-    for row_idx, var_idx in enumerate(basis_phase1):
-        if var_idx < num_original_vars:
-            # Variabile della forma standard (originale, slack o surplus)
-            basis_phase2.append(var_idx)
-        else:
-            # Variabile artificiale
-            artificial_indices_in_basis.append((row_idx, var_idx))
+    artificial_rows = [
+        row_idx for row_idx, var_idx in enumerate(current_tableau.basis)
+        if var_idx >= num_original_vars
+    ]
 
-    if artificial_indices_in_basis:
-        # Idealmente, se w* = 0, tutte le variabili artificiali dovrebbero avere valore 0
-        # e potrebbe essere possibile pivot arle fuori dalla base.
-        
-        # Se una variabile artificiale è ancora in base con valore > 0, c'è un errore
-        rhs_values = [row[-1] for row in phase1_tableau.data[1:]]
-        for row_idx, var_idx in artificial_indices_in_basis:
-            if rhs_values[row_idx] > Fraction(0):
+    if artificial_rows:
+        removal_step = Step(
+            title="Gestione variabili artificiali in base con valore 0",
+            description=f"Trovate {len(artificial_rows)} variabili artificiali ancora in base dopo la Fase I. "
+            f"Si tenta di pivotarle fuori; se non è possibile, la riga viene trattata come ridondante.",
+            phase=2,
+            notes=["Caso degenere della Fase I."],
+        )
+        steps.append(removal_step)
+
+    # Prova a pivotare fuori tutte le artificiali rimaste in base.
+    # Il ciclo continua finché riusciamo a fare progressi, così una pivot può
+    # liberare un'altra colonna per le iterazioni successive.
+    while True:
+        progress = False
+        for row_idx, var_idx in enumerate(list(current_tableau.basis)):
+            if var_idx < num_original_vars:
+                continue
+
+            rhs_value = current_tableau.data[row_idx + 1][-1]
+            if rhs_value > Fraction(0):
                 error_step = Step(
                     title="ERRORE: Variabile artificiale con valore > 0 ancora in base",
-                    description=f"Variabile artificiale {phase1_tableau.var_names[var_idx]} ha valore {rhs_values[row_idx]} > 0 in base. "
+                    description=f"Variabile artificiale {current_tableau.var_names[var_idx]} ha valore {rhs_value} > 0 in base. "
                     f"Questo contraddice w* = 0 della Fase I.",
                     phase=2,
                     notes=["Errore interno: controllare la Fase I."],
@@ -325,81 +334,97 @@ def prepare_phase_two(
                 steps.append(error_step)
                 return None, steps
 
-        # Se la variabile artificiale è in base con valore 0, proviamo a pivotarla fuori
-        # usando una colonna non artificiale con coefficiente non zero sulla sua riga
-        removal_step = Step(
-            title="Gestione variabili artificiali in base con valore 0",
-            description=f"Trovate {len(artificial_indices_in_basis)} variabili artificiali in base con valore 0. "
-            f"Verranno pivot ate fuori dalla base se possibile.",
-            phase=2,
-            notes=["Caso degenere della Fase I."],
-        )
-        steps.append(removal_step)
-
-        # Prova a pivotare ogni artificiale fuori dalla base
-        current_tableau = phase1_tableau
-        for row_idx, var_idx in artificial_indices_in_basis:
-            # Cerca una colonna con coefficiente non zero sulla riga row_idx
-            # preferibilmente una colonna di una variabile non artificiale
             pivot_col_found = None
-            
-            for col_idx in range(num_original_vars):
-                # Verifica che il coefficiente non sia zero
-                if current_tableau.data[row_idx + 1][col_idx] != Fraction(0):
-                    # Priorità: colonne di variabili originali/slack/surplus
+            row_values = current_tableau.data[row_idx + 1][:num_original_vars]
+            for col_idx, coeff in enumerate(row_values):
+                if coeff != Fraction(0) and col_idx not in current_tableau.basis:
                     pivot_col_found = col_idx
                     break
-            
-            if pivot_col_found is not None and pivot_col_found not in current_tableau.basis:
-                # Esegui il pivot per far uscire l'artificiale
-                from .pivot import pivot
-                new_basis = list(current_tableau.basis)
-                new_basis[row_idx] = pivot_col_found
+
+            if pivot_col_found is not None:
                 try:
                     current_tableau = pivot(current_tableau, row_idx, pivot_col_found)
-                    basis_phase2.append(pivot_col_found)
-                    if var_idx in basis_phase2:
-                        basis_phase2.remove(var_idx)
-                except:
-                    pass  # Se il pivot fallisce, continua
+                    progress = True
+                    break
+                except ValueError:
+                    # Se il pivot non è possibile, passiamo alla classificazione delle righe.
+                    continue
 
-        phase1_tableau = current_tableau
+        if not progress:
+            break
 
-    # Controlla che tutte le righe abbiano una variabile basica
-    # Se mancano variabili basiche, potrebbe significare che il vincolo è ridondante
-    if len(basis_phase2) < len(std.b):
-        # Cas speciale: se mancano m - len(basis_phase2) righe, questi vincoli potrebbero essere ridondanti
-        # Rimuoviamo i vincoli ridondanti da A, b e aggiustiamo la base
-        
-        # Per ora, proviamo a completare la base con le variabili artificiali
-        # che rimangono in base (anche se il metodo non è perfetto)
-        
-        # Oppure, aggiustiamo il sistema per eliminare i vincoli ridondanti
-        # Identifichi quali righe non hanno variabili basiche
-        rows_without_basis = set(range(len(std.b))) - set(range(len(basis_phase2)))
-        
-        if rows_without_basis:
-            # Questi vincoli potrebbero essere ridondanti o lineamente dipendenti
-            # Per un'implementazione completa, servirebbe rimuoverli da A e b
-            # Per ora, continuiamo assumendo che sia degenere ma ammissibile
-            
-            removal_step = Step(
-                title="Avviso: Vincoli potenzialmente ridondanti",
-                description=f"Dopo rimozione delle artificiali, {len(rows_without_basis)} vincoli non hanno variabili basiche. "
-                f"Questi potrebbero essere ridondanti.",
-                phase=2,
-                notes=["Caso degenere: i vincoli sono linealmente dipendenti."],
-            )
-            steps.append(removal_step)
+    keep_rows: list[int] = []
+    reduced_basis: list[int] = []
+    redundant_rows: list[int] = []
+
+    for row_idx, var_idx in enumerate(current_tableau.basis):
+        rhs_value = current_tableau.data[row_idx + 1][-1]
+        row_values = current_tableau.data[row_idx + 1][:num_original_vars]
+
+        if var_idx < num_original_vars:
+            keep_rows.append(row_idx)
+            reduced_basis.append(var_idx)
+            continue
+
+        # Se l'artificiale non è stata eliminata ma la riga è 0 = 0,
+        # il vincolo è ridondante e può essere rimosso.
+        if all(coeff == Fraction(0) for coeff in row_values) and rhs_value == Fraction(0):
+            redundant_rows.append(row_idx)
+            continue
+
+        # Se la riga è ancora inconsistente, il problema è incoerente.
+        error_step = Step(
+            title="ERRORE: Vincolo incompatibile nella preparazione della Fase II",
+            description=f"La riga {row_idx + 1} mantiene una variabile artificiale in base e non è riducibile a 0 = 0. "
+            f"Non è possibile costruire una base ammissibile per la Fase II.",
+            phase=2,
+            notes=["Il vincolo residuo non è eliminabile e non è compatibile con la Fase II."],
+        )
+        steps.append(error_step)
+        return None, steps
+
+    if redundant_rows:
+        redundant_step = Step(
+            title="Vincoli ridondanti rimossi",
+            description=f"Eliminati {len(redundant_rows)} vincoli ridondanti della forma 0 = 0 prima della Fase II.",
+            phase=2,
+            notes=["Le righe ridondanti non influenzano la soluzione ottima."],
+        )
+        steps.append(redundant_step)
+
+    if not keep_rows:
+        # Nessun vincolo rimasto: il problema della Fase II è puramente di non negatività.
+        tableau_phase2 = Tableau(
+            data=[std.c[:] + [Fraction(0)]],
+            basis=[],
+            var_names=std.var_names,
+            phase=2,
+            objective_name="z",
+        )
+
+        prep_step = Step(
+            title="Preparazione tableau fase II",
+            description="Tutti i vincoli erano ridondanti dopo la Fase I. La Fase II parte da un tableau senza righe di vincolo.",
+            phase=2,
+            tableau_before=phase1_tableau,
+            tableau_after=tableau_phase2,
+            notes=["Base della Fase II: []"],
+        )
+        steps.append(prep_step)
+
+        return tableau_phase2, steps
+
+    reduced_A = [std.A[row_idx] for row_idx in keep_rows]
+    reduced_b = [std.b[row_idx] for row_idx in keep_rows]
 
     # Costruisci il tableau della Fase II usando la matrice originale std.A
     # e la base filtrata dalla Fase I
     try:
         tableau_phase2 = build_canonical_tableau(
-            A=std.A,
-            b=std.b,
+            A=reduced_A,
+            b=reduced_b,
             c=std.c,
-            basis=basis_phase2,
+            basis=reduced_basis,
             var_names=std.var_names,
             phase=2,
             objective_name="z",
@@ -412,7 +437,7 @@ def prepare_phase_two(
             phase=2,
             tableau_before=phase1_tableau,
             tableau_after=tableau_phase2,
-            notes=[f"Base della Fase II: {[std.var_names[i] for i in basis_phase2]}"],
+            notes=[f"Base della Fase II: {[std.var_names[i] for i in reduced_basis]}"],
         )
         steps.append(prep_step)
 

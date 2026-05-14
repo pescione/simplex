@@ -88,7 +88,7 @@ pivot_rule = st.sidebar.selectbox(
 
 # Numero massimo di iterazioni
 max_iterations = st.sidebar.slider(
-    "Numero massimo iterazioni", min_value=1, max_value=500, value=100, step=10
+    "Numero massimo iterazioni", min_value=1, max_value=2000, value=100, step=10
 )
 
 # Pulsante per risolvere

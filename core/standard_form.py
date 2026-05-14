@@ -76,6 +76,9 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             constraint_auxiliary_var.append(slack_var_idx)
             num_new_vars += 1
 
+            # Mantieni allineati A e c: ogni nuova colonna riceve un coefficiente nullo
+            c.append(Fraction(0))
+
             # Aggiungi colonna alla matrice A
             for row in A:
                 row.append(Fraction(0))
@@ -98,6 +101,9 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             constraint_auxiliary_var.append(surplus_var_idx)
             num_new_vars += 1
 
+            # Mantieni allineati A e c: ogni nuova colonna riceve un coefficiente nullo
+            c.append(Fraction(0))
+
             # Aggiungi colonna alla matrice A
             for row in A:
                 row.append(Fraction(0))
@@ -116,10 +122,6 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
         else:
             # Vincolo =, nessuna variabile ausiliaria
             constraint_auxiliary_var.append(-1)
-
-    # Aggiungi valori zero per le nuove variabili nella funzione obiettivo
-    while len(c) < num_new_vars:
-        c.append(Fraction(0))
 
     # Step 4: Crea il problema in forma standard
     standard_problem = StandardProblem(

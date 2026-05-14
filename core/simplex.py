@@ -135,9 +135,12 @@ def choose_leaving_variable(
     tied_rows = [i for i, ratio in ratios if ratio == min_ratio]
     
     if rule == "bland":
-        # In caso di pareggio, scegli la variabile basica con indice più piccolo
-        # (oppure equivalentemente, la riga con indice più piccolo)
-        leaving_row = min(tied_rows)
+        # In caso di pareggio, Bland sceglie la variabile basica con indice più piccolo
+        tied_rows_with_basis = [
+            (tableau.basis[row_idx], row_idx)
+            for row_idx in tied_rows
+        ]
+        leaving_row = min(tied_rows_with_basis)[1]
     else:
         # Default: scegli la prima riga con rapporto minimo
         leaving_row = tied_rows[0]
@@ -292,7 +295,7 @@ def simplex(
     # Limite di iterazioni raggiunto
     final_step = Step(
         title="Limite massimo di iterazioni raggiunto",
-        description=f"L'algoritmo non è converso entro {options.max_iterations} iterazioni. Possibile degenerazione o ciclo.",
+            description=f"L'algoritmo non converge entro {options.max_iterations} iterazioni. Possibile degenerazione o ciclo.",
         phase=tableau.phase,
         tableau_before=current_tableau,
         notes=[f"Ultime iterazioni eseguite: {iteration}"],

@@ -148,6 +148,25 @@ class TestChooseLeavingVariable:
         # Il rapporto minimo dovrebbe essere 4/1 = 4 (riga 0)
         assert leaving_row == 0
 
+    def test_bland_tie_breaking(self):
+        """Test che Bland scelga la variabile basica con indice più piccolo a parità di rapporto."""
+        A = [
+            [Fraction(1), Fraction(0), Fraction(1)],
+            [Fraction(1), Fraction(1), Fraction(1)],
+        ]
+        b = [Fraction(4), Fraction(4)]
+        c = [Fraction(1), Fraction(1), Fraction(0)]
+        basis = [2, 1]
+        var_names = ["x1", "x2", "s1"]
+
+        tableau = build_canonical_tableau(A, b, c, basis, var_names)
+
+        leaving_row, ratios = choose_leaving_variable(tableau, 0, rule="bland")
+
+        # Entrambe le righe hanno rapporto 4, Bland deve scegliere la riga con
+        # la variabile basica di indice più piccolo: s1 (indice 2) invece di x2 (indice 1)
+        assert leaving_row == 0
+
 
 class TestSimplex:
     """Test della funzione simplex principale."""
