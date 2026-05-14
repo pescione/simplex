@@ -26,6 +26,7 @@ cd simplex
 # Installazione delle dipendenze
 pip install -r requirements.txt
 ```
+Consiglio vivamente l'utilizzo di un virtual environment per non creare eventuali conflitti con altre versioni di librerie installate nel sistema
 
 ## 🚀 Utilizzo
 
