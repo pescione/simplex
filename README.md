@@ -5,7 +5,10 @@ Un'applicazione didattica interattiva per la risoluzione di problemi di programm
 ## 🎯 Caratteristiche
 
 - **Trasformazione in forma standard**: Conversione automatica da max a min, aggiunta di slack/surplus
-- **Metodo delle due fasi**: Ricerca di base ammissibile con variabili artificiali
+- **Tre metodi di risoluzione**:
+  - Simplesso ordinario (per vincoli ≤)
+  - Metodo delle due fasi (per problemi misti)
+  - **Simplesso duale** ⭐ (per vincoli ≥)
 - **Visualizzazione dettagliata**: Tableau e passaggi passo-passo
 - **Rilevazione di casi speciali**: Problema illimitato, inammissibile, degenerazione
 - **Aritmetica esatta**: Uso di `Fraction` per evitare errori di arrotondamento
@@ -108,6 +111,69 @@ print(f"Solution: {result.solution}")
 print(f"Optimal value: {result.optimal_value}")
 ```
 
+## ⭐ Simplesso Duale (NUOVO!)
+
+L'applicazione supporta ora tre metodi di risoluzione:
+
+### 1. **Simplesso Ordinario** (Default)
+Ideale per problemi con vincoli `<=` prevalenti.
+
+### 2. **Metodo delle Due Fasi**
+Ideale per problemi con vincoli misti o senza base ammissibile iniziale.
+
+### 3. **Simplesso Duale** ⭐ (NUOVO)
+Ideale per problemi con vincoli `>=` prevalenti, evita variabili artificiali.
+
+### Come usare il Simplesso Duale
+
+**Nell'interfaccia Streamlit:**
+```
+1. Avvia: streamlit run app.py
+2. Sidebar → "Metodo risolutivo" → Seleziona "dual_simplex"
+3. Inserisci il problema e risolvi
+```
+
+**Nel codice Python:**
+```python
+options = SolverOptions(
+    method="dual_simplex",        # ← Usa il simplesso duale
+    entering_var_rule="bland",
+    max_iterations=100
+)
+result = solve_problem(problem_text, options)
+```
+
+**Esempio:**
+```python
+problem = """min
+c = [2, 3]
+A = [
+  [1, 1],
+  [2, 1]
+]
+signs = [">=", ">="]
+b = [4, 5]
+"""
+
+options = SolverOptions(method="dual_simplex")
+result = solve_problem(problem, options)
+# Risultato: x1=3, x2=1, valore=9
+```
+
+### Vantaggi del Simplesso Duale
+- ✅ Niente variabili artificiali
+- ✅ Una sola fase (non due)
+- ✅ Efficiente su problemi con vincoli `>=`
+- ✅ Numericamente stabile
+
+### Documentazione del Simplesso Duale
+
+Per approfondimenti sul simplesso duale, consulta:
+- **[SIMPLESSO_DUALE.md](SIMPLESSO_DUALE.md)** - Teoria matematica completa
+- **[IMPLEMENTAZIONE_DUALE_RECAP.md](IMPLEMENTAZIONE_DUALE_RECAP.md)** - Guida all'uso
+- **[QUICK_START.md](QUICK_START.md)** - Riferimento rapido
+- **[esempi_simplesso_duale.py](esempi_simplesso_duale.py)** - 5 esempi pratici
+
 ## 📁 Struttura del progetto
 
 ```
@@ -123,18 +189,26 @@ simplex/
 │   ├── pivot.py             # Operazione di pivot
 │   ├── simplex.py           # Algoritmo simplesso fase II
 │   ├── two_phase.py         # Metodo delle due fasi
+│   ├── dual.py              # ⭐ Trasformazione duale
+│   ├── dual_simplex.py      # ⭐ Algoritmo simplesso duale
 │   ├── solver.py            # Solver ad alto livello
 │   └── formatting.py        # Formattazione per visualizzazione
 ├── tests/
-│   ├── test_parser.py       # Test del parser
-│   ├── test_standard_form.py # Test della forma standard
-│   ├── test_basis.py        # Test ricerca base
-│   ├── test_tableau.py      # Test tableau
-│   ├── test_pivot.py        # Test pivot
-│   ├── test_simplex.py      # Test simplesso
-│   └── test_two_phase.py    # Test due fasi
+│   ├── test_parser.py
+│   ├── test_standard_form.py
+│   ├── test_basis.py
+│   ├── test_tableau.py
+│   ├── test_pivot.py
+│   ├── test_simplex.py
+│   ├── test_two_phase.py
+│   └── test_dual_simplex.py # ⭐ Test simplesso duale
 ├── requirements.txt         # Dipendenze
-└── README.md               # Questo file
+├── README.md               # Questo file
+├── SIMPLESSO_DUALE.md      # ⭐ Teoria del simplesso duale
+├── IMPLEMENTAZIONE_DUALE_RECAP.md # ⭐ Guida all'uso
+├── QUICK_START.md          # ⭐ Riferimento rapido
+├── PROGETTO_COMPLETATO.md  # ⭐ Riepilogo implementazione
+└── esempi_simplesso_duale.py # ⭐ Esempi pratici
 ```
 
 ## 🧪 Esecuzione dei test
@@ -146,9 +220,21 @@ pytest
 # Con output verboso
 pytest -v
 
+# Test del simplesso duale ⭐
+python tests/test_dual_simplex.py
+
 # Test specifico
 pytest tests/test_parser.py
 ```
+
+### Test Disponibili
+
+- ✅ Parser e standard form
+- ✅ Ricerca base iniziale
+- ✅ Operazioni di tableau e pivot
+- ✅ Simplesso ordinario
+- ✅ Metodo delle due fasi
+- ✅ **Simplesso duale (6 test)** ⭐
 
 ## 📝 Esempi di problemi
 

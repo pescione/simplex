@@ -87,6 +87,14 @@ pivot_rule = st.sidebar.selectbox(
     index=0,
 )
 
+# Metodo risolutivo
+solving_method = st.sidebar.selectbox(
+    "Metodo risolutivo",
+    ["auto", "two_phase", "dual_simplex"],
+    index=0,
+    help="auto: sceglie automaticamente | two_phase: metodo delle due fasi | dual_simplex: simplesso duale",
+)
+
 # Numero massimo di iterazioni
 max_iterations = st.sidebar.slider(
     "Numero massimo iterazioni", min_value=1, max_value=2000, value=100, step=10
@@ -303,7 +311,10 @@ if solve_button:
         with st.spinner("⏳ Risoluzione in corso..."):
             try:
                 options = SolverOptions(
-                    entering_var_rule=pivot_rule, max_iterations=max_iterations, verbosity=1
+                    entering_var_rule=pivot_rule,
+                    max_iterations=max_iterations,
+                    verbosity=1,
+                    method=solving_method,
                 )
                 result = solve_problem(problem_text, options)
 

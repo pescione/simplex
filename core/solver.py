@@ -3,13 +3,68 @@ Solver ad alto livello che coordina tutti i moduli.
 """
 
 from fractions import Fraction
+from typing import Optional
 from .models import LinearProblem, SolveResult, SolverOptions, Step
 from .parser import parse_problem
 from .standard_form import to_standard_form
 from .basis import find_identity_basis, basis_is_feasible
 from .tableau import build_canonical_tableau, get_rhs_values, get_objective_value
 from .simplex import simplex
-from .two_phase import run_phase_one, prepare_phase_two
+from .two_phase import run_phase_one, prepare_phase_two, build_artificial_problem
+from .dual_simplex import dual_simplex
+from .dual import can_use_dual_simplex, identify_dual_infeasibility
+
+
+def build_tableau_for_dual_simplex(
+    standard_problem: "StandardProblem", basis: list[int], options: SolverOptions
+) -> Optional["Tableau"]:
+    """
+    Prepara il tableau per il simplesso duale secondo il Lez14.
+    
+    Procedimento:
+    1. Verifica ammissibilità duale (c >= 0)
+    2. Nega le righe con RHS < 0 per avere ammissibilità duale nel tableau
+    3. Costruisce il tableau canonico
+    
+    Args:
+        standard_problem: problema in forma standard
+        basis: base iniziale
+        options: opzioni del solver
+        
+    Returns:
+        Tableau pronto per il simplesso duale, o None se non ammissibile duale
+    """
+    # Verifica ammissibilità duale: c deve essere >= 0
+    # (altrimenti il tableau non sarà ammissibile duale)
+    if not all(c >= 0 for c in standard_problem.c):
+        # Non ammissibile duale: non possiamo usare il duale
+        return None
+    
+    # Copia il problema
+    A = [row[:] for row in standard_problem.A]
+    b = list(standard_problem.b)
+    
+    # Nega le righe con RHS < 0 (come nel Lez14)
+    # Questo prepara il tableau per il duale:
+    # - Ammissibilità duale: costi ridotti >= 0 (sono uguali a c)
+    # - Inammissibilità primale: RHS potenzialmente < 0
+    for i in range(len(b)):
+        if b[i] < 0:
+            A[i] = [-coeff for coeff in A[i]]
+            b[i] = -b[i]
+    
+    # Costruisci il tableau canonico
+    tableau = build_canonical_tableau(
+        A=A,
+        b=b,
+        c=standard_problem.c,
+        basis=basis,
+        var_names=standard_problem.var_names,
+        phase=2,
+        objective_name="z",
+    )
+    
+    return tableau
 
 
 def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveResult:
@@ -77,6 +132,106 @@ def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveR
     # Step 3: Ricerca della base iniziale
     basis = find_identity_basis(standard_problem.A)
 
+    # ===================================================================
+    # PERCORSO 1: SIMPLESSO DUALE (se richiesto esplicitamente)
+    # ===================================================================
+    if options.method == "dual_simplex":
+        method_step = Step(
+            title="Metodo risolutivo scelto: Simplesso Duale",
+            description="Verrà utilizzato il metodo del simplesso duale (da Lez14).",
+            notes=["Non verrà usata la fase I. Il duale parte da ammissibilità duale."],
+        )
+        all_steps.append(method_step)
+        
+        # Il simplesso duale richiede una base identità naturale
+        # Se non la trovo, fallback alle due fasi (è un compromesso ragionevole)
+        if basis is None:
+            fallback_step = Step(
+                title="Fallback alle due fasi",
+                description="Non è stata trovata una base identità naturale. Il metodo duale richiede una base iniziale immediata. Fallback al metodo delle due fasi.",
+                notes=["Il duale non è applicabile per questo problema."],
+            )
+            all_steps.append(fallback_step)
+            # Procedi al PERCORSO 3 (Due fasi) usando la logica sotto
+        else:
+            # Costruisci il tableau per il simplesso duale con la base identità trovata
+            try:
+                tableau = build_tableau_for_dual_simplex(standard_problem, basis, options)
+                if tableau is None:
+                    # Il problema non è ammissibile duale
+                    error_result = SolveResult(
+                        status="input_error",
+                        message="Il problema non è ammissibile duale. I coefficienti della funzione obiettivo (c) contengono valori negativi. Il simplesso duale richiede c >= 0.",
+                        original_problem=original_problem,
+                        standard_problem=standard_problem,
+                        steps=all_steps,
+                        final_tableau=None,
+                        solution=None,
+                        optimal_value=None,
+                    )
+                    return error_result
+            except Exception as e:
+                error_result = SolveResult(
+                    status="input_error",
+                    message=f"Errore nella costruzione del tableau per il simplesso duale: {str(e)}",
+                    original_problem=original_problem,
+                    standard_problem=standard_problem,
+                    steps=all_steps,
+                    final_tableau=None,
+                    solution=None,
+                    optimal_value=None,
+                )
+                return error_result
+            
+            # Risolvi con il simplesso duale
+            final_tableau, simplex_steps, status = dual_simplex(tableau, options)
+            all_steps.extend(simplex_steps)
+            
+            # Estrai la soluzione
+            if status == "optimal":
+                solution = extract_solution(final_tableau, standard_problem)
+                optimal_value = get_objective_value(final_tableau)
+                
+                # Se il problema originale era di massimo, cambia il segno del valore ottimo
+                if original_problem.sense == "max":
+                    optimal_value = -optimal_value
+                
+                return SolveResult(
+                    status="optimal",
+                    message="Soluzione ottima trovata con il simplesso duale.",
+                    original_problem=original_problem,
+                    standard_problem=standard_problem,
+                    steps=all_steps,
+                    final_tableau=final_tableau,
+                    solution=solution,
+                    optimal_value=optimal_value,
+                )
+            elif status == "unbounded":
+                return SolveResult(
+                    status="unbounded",
+                    message="Il problema è illimitato.",
+                    original_problem=original_problem,
+                    standard_problem=standard_problem,
+                    steps=all_steps,
+                    final_tableau=final_tableau,
+                    solution=None,
+                    optimal_value=None,
+                )
+            else:
+                return SolveResult(
+                    status="iteration_limit",
+                    message="Limite massimo di iterazioni raggiunto.",
+                    original_problem=original_problem,
+                    standard_problem=standard_problem,
+                    steps=all_steps,
+                    final_tableau=final_tableau,
+                    solution=None,
+                    optimal_value=None,
+                )
+    
+    # ===================================================================
+    # PERCORSO 2: SIMPLESSO ORDINARIO (se base ammissibile)
+    # ===================================================================
     if basis is not None and basis_is_feasible(standard_problem.A, standard_problem.b, basis):
         # Base ammissibile trovata: risoluzione diretta (fase II)
         base_step = Step(
@@ -110,9 +265,8 @@ def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveR
             )
             return error_result
 
-        # Risolvi con il simplesso
+        # Usa il simplesso ordinario (metodo primale)
         final_tableau, simplex_steps, status = simplex(tableau, options)
-        all_steps.extend(simplex_steps)
 
         # Estrai la soluzione
         if status == "optimal":

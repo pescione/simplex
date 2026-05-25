@@ -150,7 +150,12 @@ class SolverOptions:
         entering_var_rule: "most_negative", "first_negative", "bland"
         max_iterations: numero massimo di iterazioni
         verbosity: livello di dettaglio (0, 1, 2)
+        method: metodo risolutivo
+            - "auto": sceglie automaticamente tra due fasi e simplesso duale
+            - "two_phase": usa il metodo delle due fasi
+            - "dual_simplex": usa il simplesso duale (se applicabile)
     """
     entering_var_rule: str = "most_negative"
     max_iterations: int = 100
     verbosity: int = 1
+    method: str = "auto"
