@@ -2,6 +2,7 @@
 Interfaccia Streamlit per il solver del simplesso.
 """
 
+import re
 import streamlit as st
 import pandas as pd
 from fractions import Fraction
@@ -145,6 +146,80 @@ def build_markdown_report(result) -> str:
 
     return report
 
+
+def fraction_to_latex(value: Fraction) -> str:
+    """Converte una frazione in una stringa LaTeX."""
+    if value.denominator == 1:
+        return str(value.numerator)
+
+    sign = "-" if value.numerator < 0 else ""
+    return f"{sign}\\frac{{{abs(value.numerator)}}}{{{value.denominator}}}"
+
+
+def variable_to_latex(name: str) -> str:
+    """Rende i nomi di variabile compatibili con LaTeX."""
+    match = re.fullmatch(r"([a-zA-Z]+)(\d+)", name)
+    if match:
+        return f"{match.group(1)}_{{{match.group(2)}}}"
+    return name
+
+
+def linear_term_to_latex(coeff: Fraction, name: str) -> str:
+    """Formatta un termine lineare per una formula LaTeX."""
+    if coeff == 0:
+        return ""
+
+    variable = variable_to_latex(name)
+    abs_coeff = abs(coeff)
+
+    if abs_coeff == 1:
+        term = variable
+    else:
+        term = f"{fraction_to_latex(abs_coeff)}\\,{variable}"
+
+    return f"- {term}" if coeff < 0 else term
+
+
+def standard_problem_to_latex(result) -> str:
+    """Costruisce la forma standard come blocco matematico LaTeX."""
+    standard_problem = result.standard_problem
+    if not standard_problem:
+        return ""
+
+    objective_terms = [
+        linear_term_to_latex(coeff, var)
+        for var, coeff in zip(standard_problem.var_names, standard_problem.c)
+        if coeff != 0
+    ]
+    objective = " + ".join(objective_terms) if objective_terms else "0"
+    objective = objective.replace("+ -", "- ")
+
+    constraint_lines = []
+    for row, rhs in zip(standard_problem.A, standard_problem.b):
+        terms = [
+            linear_term_to_latex(coeff, var)
+            for var, coeff in zip(standard_problem.var_names, row)
+            if coeff != 0
+        ]
+        equation = " + ".join(terms) if terms else "0"
+        equation = equation.replace("+ -", "- ")
+        constraint_lines.append(f"& {equation} = {fraction_to_latex(rhs)}\\")
+
+    non_negative = ", ".join(
+        variable_to_latex(var) for var in standard_problem.var_names
+    )
+
+    lines = [
+        "\\begin{aligned}",
+        f"\\min\\quad & {objective}\\\\",
+        "\\text{s.t.}\\quad",
+    ]
+    lines.extend(constraint_lines)
+    lines.append(f"& {non_negative} \\geq 0")
+    lines.append("\\end{aligned}")
+
+    return "$$\n" + "\n".join(lines) + "\n$$"
+
 # Area principale con tab
 tab_input, tab_standard, tab_phase1, tab_phase2, tab_solution, tab_log = st.tabs(
     [
@@ -278,6 +353,10 @@ if result:
             # Visualizza il sistema in forma standard
             with st.expander("📐 Sistema in forma standard"):
                 st.markdown("**Forma standard:** min c^T x, Ax = b, x ≥ 0")
+
+                standard_latex = standard_problem_to_latex(result)
+                if standard_latex:
+                    st.markdown(standard_latex)
 
                 # Matrice A
                 st.markdown("**Matrice A:**")
