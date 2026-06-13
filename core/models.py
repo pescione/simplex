@@ -19,6 +19,7 @@ class LinearProblem:
         signs: lista di "<=", ">=", "="
         b: termini noti
         var_names: nomi delle variabili
+        free_vars: lista di nomi di variabili non vincolate a x >= 0 (libere)
     """
     sense: str
     c: list[Fraction]
@@ -26,6 +27,7 @@ class LinearProblem:
     signs: list[str]
     b: list[Fraction]
     var_names: list[str]
+    free_vars: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +48,7 @@ class StandardProblem:
         surplus_vars: indici delle variabili surplus
         artificial_vars: indici delle variabili artificiali
         constraint_auxiliary_var: per ogni vincolo, indice della variabile ausiliaria (slack/surplus) o -1 se nessuna
+        free_var_map: dict {var_libera: (indice_parte_positiva, indice_parte_negativa)} per tracciare le suddivisioni
         transformation_log: lista descrittiva delle trasformazioni effettuate
     """
     c: list[Fraction]
@@ -57,6 +60,7 @@ class StandardProblem:
     surplus_vars: list[int] = field(default_factory=list)
     artificial_vars: list[int] = field(default_factory=list)
     constraint_auxiliary_var: list[int] = field(default_factory=list)
+    free_var_map: dict[str, tuple[int, int]] = field(default_factory=dict)
     transformation_log: list[str] = field(default_factory=list)
 
 

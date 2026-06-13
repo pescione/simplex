@@ -40,7 +40,7 @@ st.sidebar.title("⚙️ Impostazioni")
 # Selezione dell'esempio
 example_choice = st.sidebar.selectbox(
     "Scegli un esempio o personalizzato",
-    ["Personalizzato", "Slack iniziale", "Due fasi", "Illimitato"],
+    ["Personalizzato", "Slack iniziale", "Due fasi", "Illimitato", "Variabili libere"],
     key="example_choice",
 )
 
@@ -73,6 +73,16 @@ A = [
 ]
 signs = ["=", "="]
 b = [1, -1]
+""",
+    "Variabili libere": """min
+c = [1, -2, 3]
+A = [
+  [1, 1, 1],
+  [2, -1, 1]
+]
+signs = ["=", "="]
+b = [5, 3]
+free = [x2]
 """,
 }
 
@@ -288,6 +298,7 @@ b = [1, 2]
         ]
         signs = ["<=", ">=", "=", ...]  # verso dei vincoli
         b = [b1, b2, b3, ...]   # termini noti
+        free = [x1, x3]          # (opzionale) variabili libere (non vincolate a x ≥ 0)
         ```
 
         **Esempi di numeri supportati:**
@@ -296,9 +307,14 @@ b = [1, 2]
         - Decimali: `0.5`, `-3.25`
 
         **⚠️ Vincoli di non negatività:**
-        - Tutte le variabili sono **automaticamente non-negative** (`x ≥ 0`)
-        - **NON** occorre specificarli nell'input
+        - Per **default**, tutte le variabili sono **automaticamente non-negative** (`x ≥ 0`)
+        - Per specificare variabili **libere** (non vincolate), usa la riga `free`
+        - Esempio: `free = [x2, x4]` rende x₂ e x₄ variabili libere
+        - Le variabili libere sono automaticamente trasformate in `x_i = x_i⁺ - x_i⁻` dove x_i⁺, x_i⁻ ≥ 0
+
+        **Importante:**
         - I vincoli `<=`, `>=`, `=` nella riga `signs` sono solo per gli altri vincoli
+        - La riga `free` è **opzionale**: se non la specifichi, tutte le variabili sono non-negative
         """
         )
 

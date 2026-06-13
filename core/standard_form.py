@@ -21,12 +21,52 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
     """
     steps = []
 
-    # Step 1: Trasformazione da max a min
+    # Step 0: Trasformazione delle variabili libere
+    # Una variabile libera x_i viene sostituita con x_i = x_i+ - x_i-
     c = list(problem.c)
     A = [row[:] for row in problem.A]
     b = list(problem.b)
     signs = list(problem.signs)
+    var_names = list(problem.var_names)
+    free_var_map = {}
+    
+    # Processa le variabili libere in ordine inverso per evitare problemi di indice
+    free_vars_indices = [i for i, var in enumerate(var_names) if var in problem.free_vars]
+    
+    for idx in reversed(free_vars_indices):
+        free_var_name = var_names[idx]
+        # Crea due nuove variabili: var_name+ e var_name-
+        pos_var_name = f"{free_var_name}+"
+        neg_var_name = f"{free_var_name}-"
+        
+        # Sostituisci in c: c[idx] diventa [c[idx], -c[idx]]
+        coeff = c[idx]
+        c[idx] = coeff  # x_i+ ha il coefficiente originale
+        c.insert(idx + 1, -coeff)  # x_i- ha il coefficiente negativo
+        
+        # Sostituisci in A: per ogni riga A[i][idx] diventa [A[i][idx], -A[i][idx]]
+        for i in range(len(A)):
+            coeff_a = A[i][idx]
+            A[i].insert(idx + 1, -coeff_a)
+        
+        # Aggiorna var_names
+        var_names[idx] = pos_var_name
+        var_names.insert(idx + 1, neg_var_name)
+        
+        # Traccia la mappatura
+        free_var_map[free_var_name] = (idx, idx + 1)
+        
+        step = Step(
+            title=f"Trasformazione variabile libera {free_var_name}",
+            description=f"Variabile libera {free_var_name} sostituita con {free_var_name} = {pos_var_name} - {neg_var_name}, dove {pos_var_name}, {neg_var_name} >= 0",
+            notes=[
+                f"Nuova coppia di variabili: {pos_var_name}, {neg_var_name}",
+                f"Indici: {pos_var_name} in posizione {idx}, {neg_var_name} in posizione {idx + 1}"
+            ],
+        )
+        steps.append(step)
 
+    # Step 1: Trasformazione da max a min
     if problem.sense == "max":
         c = [-coeff for coeff in c]
         step = Step(
@@ -59,7 +99,6 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
             steps.append(step)
 
     # Step 3: Aggiunta di variabili slack e surplus
-    var_names = list(problem.var_names)
     slack_vars = []
     surplus_vars = []
     artificial_vars = []
@@ -134,6 +173,7 @@ def to_standard_form(problem: LinearProblem) -> tuple[StandardProblem, list[Step
         surplus_vars=surplus_vars,
         artificial_vars=artificial_vars,
         constraint_auxiliary_var=constraint_auxiliary_var,
+        free_var_map=free_var_map,
         transformation_log=[step.description for step in steps],
     )
 

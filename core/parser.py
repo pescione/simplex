@@ -157,6 +157,44 @@ def parse_signs_list(s: str) -> list[str]:
     return signs
 
 
+def parse_free_vars_list(s: str) -> list[str]:
+    """
+    Converte una stringa che rappresenta una lista di variabili libere.
+
+    Formato supportato:
+        "[x1, x3, x5]" o "[]" per nessuna variabile libera
+
+    Args:
+        s: stringa da convertire
+
+    Returns:
+        Lista di nomi di variabili libere
+
+    Raises:
+        ValueError: se il formato non è valido
+    """
+    s = s.strip()
+
+    if not s.startswith("[") or not s.endswith("]"):
+        raise ValueError(f"Lista deve iniziare con '[' e terminare con ']': {s}")
+
+    inner = s[1:-1].strip()
+    if not inner:
+        return []
+
+    # Estrai i nomi delle variabili
+    # Supporta: [x1, x2, x3] oppure [x1,x2,x3]
+    var_names = [v.strip() for v in inner.split(",")]
+    
+    # Valida i nomi
+    valid_var_pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+    for var in var_names:
+        if not re.match(valid_var_pattern, var):
+            raise ValueError(f"Nome di variabile non valido: '{var}'. Deve essere un identificatore valido.")
+    
+    return var_names
+
+
 def validate_dimensions(
     c: list[Fraction],
     A: list[list[Fraction]],
@@ -235,6 +273,7 @@ def parse_problem(text: str) -> LinearProblem:
         ]
         signs = ["=", "="]
         b = [1, 2]
+        free = [x1, x3]  # (opzionale)
 
     Oppure:
 
@@ -248,6 +287,7 @@ def parse_problem(text: str) -> LinearProblem:
     - A = [[lista], [lista], ...] (su una o più righe)
     - signs = ["<=", ">=", "=", ...]
     - b = [lista di numeri]
+    - free = [lista di nomi di variabili] (opzionale, variabili non vincolate)
     - linee vuote e commenti (righe che iniziano con #)
 
     Args:
@@ -265,6 +305,7 @@ def parse_problem(text: str) -> LinearProblem:
     A = None
     signs = None
     b = None
+    free_vars = []
 
     i = 0
     while i < len(lines):
@@ -319,6 +360,13 @@ def parse_problem(text: str) -> LinearProblem:
                 raise ValueError(f"Linea non valida per b: {line}")
             b = parse_fraction_list(parts[1].strip())
 
+        elif line.startswith("free"):
+            # Parse free (opzionale)
+            parts = line.split("=", 1)
+            if len(parts) != 2:
+                raise ValueError(f"Linea non valida per free: {line}")
+            free_vars = parse_free_vars_list(parts[1].strip())
+
     # Validazione
     if sense is None:
         raise ValueError("Manca il verso della funzione obiettivo (min o max)")
@@ -337,6 +385,14 @@ def parse_problem(text: str) -> LinearProblem:
     # Genera i nomi delle variabili
     var_names = generate_var_names(len(c))
 
+    # Valida free_vars: deve contenere solo variabili valide
+    for free_var in free_vars:
+        if free_var not in var_names:
+            raise ValueError(
+                f"Variabile libera '{free_var}' non valida. "
+                f"Variabili disponibili: {', '.join(var_names)}"
+            )
+
     return LinearProblem(
-        sense=sense, c=c, A=A, signs=signs, b=b, var_names=var_names
+        sense=sense, c=c, A=A, signs=signs, b=b, var_names=var_names, free_vars=free_vars
     )

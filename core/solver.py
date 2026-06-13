@@ -453,6 +453,9 @@ def extract_solution(
     La soluzione pubblica contiene solo le variabili originali del problema.
     Le variabili slack/surplus sono variabili ausiliarie interne e non fanno
     parte della soluzione finale esposta all'utente.
+    
+    Per le variabili libere (non vincolate), la soluzione ricostruisce il valore
+    originale da x_i = x_i+ - x_i-.
 
     Args:
         final_tableau: tableau finale
@@ -474,5 +477,21 @@ def extract_solution(
     for i, var_idx in enumerate(final_tableau.basis):
         if var_idx < standard_problem.original_var_count:
             solution[standard_problem.var_names[var_idx]] = rhs_values[i]
+
+    # Ricostituisci le variabili libere da x_i = x_i+ - x_i-
+    for free_var, (pos_idx, neg_idx) in standard_problem.free_var_map.items():
+        val_pos = solution.get(standard_problem.var_names[pos_idx], Fraction(0))
+        val_neg = solution.get(standard_problem.var_names[neg_idx], Fraction(0))
+        value = val_pos - val_neg
+        
+        # Aggiorna la soluzione: rimuovi le variabili trasformate
+        # e aggiungi la variabile originale
+        if standard_problem.var_names[pos_idx] in solution:
+            del solution[standard_problem.var_names[pos_idx]]
+        if standard_problem.var_names[neg_idx] in solution:
+            del solution[standard_problem.var_names[neg_idx]]
+        
+        # Aggiungi la variabile libera originale
+        solution[free_var] = value
 
     return solution
