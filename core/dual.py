@@ -23,85 +23,100 @@ from .tableau import build_canonical_tableau, get_rhs_values
 def compute_dual_problem(problem: LinearProblem) -> tuple[LinearProblem, list[Step]]:
     """
     Trasforma un problema primale nel suo duale.
-    
-    Trasformazioni:
-    - min c^T x → max b^T y
-    - max c^T x → min b^T y
-    - Vincoli "<=": A_i x ≤ b_i → y_i ≥ 0
-    - Vincoli ">=": A_i x ≥ b_i → y_i ≤ 0
-    - Vincoli "=": A_i x = b_i → y_i senza vincoli
-    - Matrice A → A^T (trasposta)
-    - Coefficienti c → b (termini noti)
-    - Termini noti b → c (coefficienti)
-    
-    Args:
-        problem: LinearProblem del problema primale
-        
-    Returns:
-        (problema duale come LinearProblem, lista di step descrittivi)
+
+    Convenzioni usate:
+    - Le variabili non elencate in problem.free_vars sono considerate >= 0.
+    - Un vincolo primale '=' genera una variabile duale libera.
+    - Una variabile primale libera genera un vincolo duale '='.
+    - Un vincolo primale con verso opposto genera una variabile duale <= 0,
+      rappresentata tramite cambio di segno: y = -y_neg, con y_neg >= 0.
     """
+
     steps = []
-    
-    m = len(problem.b)  # numero vincoli primali = numero variabili duali
-    n = len(problem.c)  # numero variabili primali
-    
-    # Trasforma la funzione obiettivo
-    # Primal: min → Dual: max (max b^T y)
-    # Primal: max → Dual: min (min b^T y)
-    if problem.sense == "min":
-        dual_sense = "max"
-        dual_c = list(problem.b)  # coefficienti = b primale
-    else:  # "max"
+
+    m = len(problem.b)      # numero vincoli primali = numero variabili duali
+    n = len(problem.c)      # numero variabili primali = numero vincoli duali
+
+    primal_free_vars = set(getattr(problem, "free_vars", []))
+
+    if problem.sense == "max":
         dual_sense = "min"
-        dual_c = [-coeff for coeff in problem.b]
-    
-    # Trasforma la matrice (A → A^T)
-    dual_A = [[problem.A[i][j] for i in range(m)] for j in range(n)]
-    
-    # Trasforma i termini noti (c primale → b duale)
-    dual_b = list(problem.c)
-    
-    # Trasforma i vincoli in base ai segni
-    # Primal: min c^T x
-    #         A_<= x ≤ b_<= → y_<= ≥ 0
-    #         A_>= x ≥ b_>= → y_>= ≤ 0
-    #         A_= x = b_=  → y_= free
-    # 
-    # Duale: max b^T y
-    #        A_<= ^T y ≤ c_<= + (slack primale)
-    #        A_>= ^T y ≤ c_>= - (surplus primale) → A_>= ^T y + (surplus) ≤ c_>=
-    #        A_= ^T y ≤ c_=
-    #        A_= ^T y ≥ c_=
-    #
-    # Nel duale standard (forma min, ≤):
-    # min c_dual^T y
-    # A_dual y ≥ b_dual
-    # y ≥ 0 per vincoli primali <=
-    # y ≤ 0 per vincoli primali >=
-    # y free per vincoli primali =
-    
-    dual_signs = []
+        default_dual_constraint_sign = ">="
+    elif problem.sense == "min":
+        dual_sense = "max"
+        default_dual_constraint_sign = "<="
+    else:
+        raise ValueError(f"Senso problema non riconosciuto: {problem.sense}")
+
+    transformed_rows = []
+    dual_c = []
     dual_var_names = []
-    
+    dual_free_vars = []
+
     for i in range(m):
-        if problem.signs[i] == "<=":
-            # Vincolo primale ≤: variabile duale y_i ≥ 0
-            # Nel duale min: A^T y ≥ b diventa >= per mantenere y ≥ 0
-            dual_signs.append(">=")
-            dual_var_names.append(f"y_{i+1}+")  # y ≥ 0
-        elif problem.signs[i] == ">=":
-            # Vincolo primale ≥: variabile duale y_i ≤ 0
-            # Nel duale min: A^T y ≥ b, ma y ≤ 0
-            # Equivalente: -A^T (-y) ≥ b, dove -y ≥ 0
-            dual_signs.append(">=")
-            dual_var_names.append(f"y_{i+1}-")  # y ≤ 0 (rappresentato come -y ≥ 0)
-        else:  # "="
-            # Vincolo primale =: variabile duale y_i free (≤ 0 e ≥ 0)
-            # Rappresentiamo come due vincoli: uno ≥ e uno ≤
-            # Per semplicità, nel duale mettiamo =
+        sign = problem.signs[i]
+        row = list(problem.A[i])
+        b_i = problem.b[i]
+
+        y_name = f"y_{i + 1}"
+
+        if sign == "=":
+            # Vincolo primale di uguaglianza:
+            # la variabile duale corrispondente è libera.
+            multiplier = Fraction(1)
+            dual_var_name = y_name
+            dual_free_vars.append(dual_var_name)
+
+        elif problem.sense == "max":
+            # Primale max:
+            # vincolo <=  => y_i >= 0
+            # vincolo >=  => y_i <= 0, quindi y_i = -y_i_neg
+            if sign == "<=":
+                multiplier = Fraction(1)
+                dual_var_name = y_name
+            elif sign == ">=":
+                multiplier = Fraction(-1)
+                dual_var_name = f"{y_name}_neg"
+            else:
+                raise ValueError(f"Segno vincolo non supportato: {sign}")
+
+        else:
+            # Primale min:
+            # vincolo >=  => y_i >= 0
+            # vincolo <=  => y_i <= 0, quindi y_i = -y_i_neg
+            if sign == ">=":
+                multiplier = Fraction(1)
+                dual_var_name = y_name
+            elif sign == "<=":
+                multiplier = Fraction(-1)
+                dual_var_name = f"{y_name}_neg"
+            else:
+                raise ValueError(f"Segno vincolo non supportato: {sign}")
+
+        transformed_rows.append([multiplier * a for a in row])
+        dual_c.append(multiplier * b_i)
+        dual_var_names.append(dual_var_name)
+
+    # A_dual = A^T, dopo eventuali cambi di segno per variabili duali <= 0
+    dual_A = [
+        [transformed_rows[i][j] for i in range(m)]
+        for j in range(n)
+    ]
+
+    # RHS dei vincoli duali = coefficienti dell'obiettivo primale
+    dual_b = list(problem.c)
+
+    # Ogni variabile primale genera un vincolo duale.
+    # Se x_j è libera, il vincolo duale corrispondente è '='.
+    dual_signs = []
+    for j in range(n):
+        primal_var_name = problem.var_names[j]
+
+        if primal_var_name in primal_free_vars:
             dual_signs.append("=")
-            dual_var_names.append(f"y_{i+1}")  # y free
-    
+        else:
+            dual_signs.append(default_dual_constraint_sign)
+
     dual_problem = LinearProblem(
         sense=dual_sense,
         c=dual_c,
@@ -109,21 +124,27 @@ def compute_dual_problem(problem: LinearProblem) -> tuple[LinearProblem, list[St
         signs=dual_signs,
         b=dual_b,
         var_names=dual_var_names,
+        free_vars=dual_free_vars,
     )
-    
+
     step = Step(
         title="Problema duale calcolato",
-        description=f"Problema primale ({problem.sense}) trasformato nel suo duale ({dual_sense})",
+        description=(
+            f"Problema primale ({problem.sense}) trasformato "
+            f"nel suo duale ({dual_sense})."
+        ),
         notes=[
-            f"Variabili primali: {n}, Variabili duali: {m}",
-            f"Vincoli primali: {m}, Vincoli duali: {n}",
-            f"Nuovo senso: {dual_sense}",
+            f"Variabili primali: {n}",
+            f"Vincoli primali: {m}",
+            f"Variabili duali: {m}",
+            f"Vincoli duali: {n}",
+            f"Variabili duali libere: {dual_free_vars}",
+            f"Senso duale: {dual_sense}",
         ],
     )
     steps.append(step)
-    
-    return dual_problem, steps
 
+    return dual_problem, steps
 
 def can_use_dual_simplex(standard_problem: StandardProblem) -> bool:
     """

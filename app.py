@@ -102,7 +102,11 @@ solving_method = st.sidebar.selectbox(
     "Metodo risolutivo",
     ["auto", "two_phase", "dual_simplex"],
     index=0,
-    help="auto: sceglie automaticamente | two_phase: metodo delle due fasi | dual_simplex: simplesso duale",
+    help=(
+        "auto: sceglie automaticamente | "
+        "two_phase: metodo delle due fasi | "
+        "dual_simplex: trasforma il problema in duale e risolve il duale con simplesso duale"
+    ),
 )
 
 # Numero massimo di iterazioni
@@ -164,22 +168,135 @@ def build_markdown_report(result) -> str:
 
     return report
 
-
 def fraction_to_latex(value: Fraction) -> str:
-    """Converte una frazione in una stringa LaTeX."""
+    """Converte una frazione in LaTeX."""
     if value.denominator == 1:
         return str(value.numerator)
-
-    sign = "-" if value.numerator < 0 else ""
-    return f"{sign}\\frac{{{abs(value.numerator)}}}{{{value.denominator}}}"
+    return rf"\frac{{{value.numerator}}}{{{value.denominator}}}"
 
 
 def variable_to_latex(name: str) -> str:
-    """Rende i nomi di variabile compatibili con LaTeX."""
-    match = re.fullmatch(r"([a-zA-Z]+)(\d+)", name)
+    """
+    Rende i nomi di variabile compatibili con LaTeX.
+    Esempi:
+    x1 -> x_{1}
+    y_1 -> y_{1}
+    y_1_neg -> y_{1}^{neg}
+    """
+    name = name.replace("+", "^{+}").replace("-", "^{-}")
+
+    match = re.fullmatch(r"([a-zA-Z]+)_?(\d+)", name)
     if match:
-        return f"{match.group(1)}_{{{match.group(2)}}}"
-    return name
+        return rf"{match.group(1)}_{{{match.group(2)}}}"
+
+    match = re.fullmatch(r"([a-zA-Z]+)_?(\d+)_(.+)", name)
+    if match:
+        return rf"{match.group(1)}_{{{match.group(2)}}}^{{{match.group(3)}}}"
+
+    return name.replace("_", r"\_")
+
+
+def linear_expr_to_latex(coeffs: list[Fraction], var_names: list[str]) -> str:
+    """Formatta una combinazione lineare in LaTeX."""
+    terms = []
+
+    for coeff, var in zip(coeffs, var_names):
+        if coeff == 0:
+            continue
+
+        var_latex = variable_to_latex(var)
+        abs_coeff = abs(coeff)
+
+        if abs_coeff == 1:
+            term = var_latex
+        else:
+            term = f"{fraction_to_latex(abs_coeff)} {var_latex}"
+
+        if not terms:
+            if coeff < 0:
+                terms.append(f"- {term}")
+            else:
+                terms.append(term)
+        else:
+            if coeff < 0:
+                terms.append(f"- {term}")
+            else:
+                terms.append(f"+ {term}")
+
+    return " ".join(terms) if terms else "0"
+
+
+def linear_problem_to_latex(problem) -> str:
+    """
+    Costruisce il LaTeX di un LinearProblem generico,
+    quindi NON della forma standard.
+    Utile per mostrare il problema duale prima della standardizzazione.
+    """
+    if problem is None:
+        return ""
+
+    sense_latex = r"\min" if problem.sense == "min" else r"\max"
+
+    objective = linear_expr_to_latex(problem.c, problem.var_names)
+
+    constraints = []
+    for row, sign, b_val in zip(problem.A, problem.signs, problem.b):
+        lhs = linear_expr_to_latex(row, problem.var_names)
+
+        if sign == "<=":
+            sign_latex = r"\le"
+        elif sign == ">=":
+            sign_latex = r"\ge"
+        elif sign == "=":
+            sign_latex = "="
+        else:
+            sign_latex = sign
+
+        rhs = fraction_to_latex(b_val)
+        constraints.append(rf"{lhs} & {sign_latex} & {rhs}")
+
+    free_vars = set(getattr(problem, "free_vars", []))
+    nonnegative_vars = [
+        var for var in problem.var_names
+        if var not in free_vars
+    ]
+
+    domain_lines = []
+
+    if nonnegative_vars:
+        domain_lines.append(
+            rf"{', '.join(variable_to_latex(v) for v in nonnegative_vars)} \ge 0"
+        )
+
+    if free_vars:
+        domain_lines.append(
+            rf"{', '.join(variable_to_latex(v) for v in sorted(free_vars))} \text{{ libere}}"
+        )
+
+    constraints_latex = r" \\ ".join(constraints)
+    domain_latex = r" \\ ".join(domain_lines)
+
+    if domain_latex:
+        return rf"""
+
+\begin{{aligned}}
+{sense_latex}\quad & {objective} \\
+\text{{soggetto a}} \\
+& {constraints_latex} \\
+& {domain_latex}
+\end{{aligned}}
+
+"""
+    else:
+        return rf"""
+
+\begin{{aligned}}
+{sense_latex}\quad & {objective} \\
+\text{{soggetto a}}\quad
+& {constraints_latex}
+\end{{aligned}}
+
+"""
 
 
 def linear_term_to_latex(coeff: Fraction, name: str) -> str:
@@ -242,7 +359,7 @@ def standard_problem_to_latex(result) -> str:
 tab_input, tab_standard, tab_phase1, tab_phase2, tab_solution, tab_log = st.tabs(
     [
         "📝 Input",
-        "📋 Forma Standard",
+        "📋 Modello trasformato",
         "🔄 Fase I",
         "🔄 Fase II",
         "✅ Soluzione",
@@ -372,7 +489,19 @@ if result:
                 st.write(len(result.original_problem.var_names))
 
         # Visualizza le trasformazioni
-        if result.standard_problem:
+
+        if result.dual_problem is not None:
+            st.subheader("Problema duale")
+            st.info(
+                "Metodo selezionato: dual_simplex. "
+                "Il problema originale è stato trasformato nel suo duale; "
+                "qui viene mostrata la forma duale prima della standardizzazione."
+            )
+
+            st.latex("")
+            st.latex(linear_problem_to_latex(result.dual_problem))
+
+        else:
             with st.expander("🔄 Trasformazioni effettuate"):
                 for i, log_entry in enumerate(result.standard_problem.transformation_log):
                     st.write(f"{i + 1}. {log_entry}")

@@ -134,6 +134,7 @@ class SolveResult:
         final_tableau: ultimo tableau
         solution: dict {nome_var: valore}
         optimal_value: valore della funzione obiettivo
+        dual_problem: problema duale (se calcolato)
     """
     status: str
     message: str
@@ -143,6 +144,7 @@ class SolveResult:
     final_tableau: Optional[Tableau] = None
     solution: Optional[dict[str, Fraction]] = None
     optimal_value: Optional[Fraction] = None
+    dual_problem: LinearProblem | None = None
 
 
 @dataclass

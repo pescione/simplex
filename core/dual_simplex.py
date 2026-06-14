@@ -127,11 +127,14 @@ def choose_entering_variable_dual(
     
     for j in range(len(row_coefficients)):
         coeff = row_coefficients[j]
-        if coeff < 0 and j not in basis_set:  # Colonna non basica con coeff negativo
+
+        if coeff < 0 and j not in basis_set:
             reduced_cost = reduced_costs[j]
-            # Il rapporto è reduced_cost / coeff
-            # Cerchiamo il minimo rapporto (più vicino a 0 dal basso)
-            ratio = reduced_cost / coeff
+
+            # Dual ratio test:
+            # con costi ridotti >= 0 e coefficiente a_ij < 0,
+            # il rapporto corretto è reduced_cost / (-a_ij).
+            ratio = reduced_cost / (-coeff)
             candidates.append((ratio, j))
     
     if not candidates:

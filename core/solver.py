@@ -11,49 +11,115 @@ from .basis import find_identity_basis, basis_is_feasible
 from .tableau import build_canonical_tableau, get_rhs_values, get_objective_value
 from .simplex import simplex
 from .two_phase import run_phase_one, prepare_phase_two, build_artificial_problem
-from .dual_simplex import dual_simplex
-from .dual import can_use_dual_simplex, identify_dual_infeasibility
+from .dual_simplex import dual_simplex, is_dual_feasible
+from .dual import compute_dual_problem, can_use_dual_simplex, identify_dual_infeasibility
 
+def find_signed_identity_basis(
+    A: list[list[Fraction]],
+) -> tuple[list[int], list[Fraction]] | None:
+    """
+    Cerca una base formata da colonne +e_i oppure -e_i.
+
+    Restituisce:
+        (basis, row_multipliers)
+
+    Dove:
+        basis[i] = indice della variabile basica della riga i
+        row_multipliers[i] = 1 se la colonna era +e_i
+                             -1 se la colonna era -e_i
+
+    Se una colonna basica è -e_i, moltiplicheremo tutta la riga i per -1
+    per ottenere una base canonica +I.
+    """
+    if not A:
+        return None
+
+    m = len(A)
+    n = len(A[0])
+
+    basis: list[int | None] = [None] * m
+    row_multipliers = [Fraction(1)] * m
+    used_cols = set()
+
+    for i in range(m):
+        found = False
+
+        for j in range(n):
+            if j in used_cols:
+                continue
+
+            col = [A[r][j] for r in range(m)]
+
+            is_plus_e = all(
+                col[r] == (Fraction(1) if r == i else Fraction(0))
+                for r in range(m)
+            )
+
+            is_minus_e = all(
+                col[r] == (Fraction(-1) if r == i else Fraction(0))
+                for r in range(m)
+            )
+
+            if is_plus_e:
+                basis[i] = j
+                row_multipliers[i] = Fraction(1)
+                used_cols.add(j)
+                found = True
+                break
+
+            if is_minus_e:
+                basis[i] = j
+                row_multipliers[i] = Fraction(-1)
+                used_cols.add(j)
+                found = True
+                break
+
+        if not found:
+            return None
+
+    return [int(x) for x in basis], row_multipliers
+
+
+def normalize_rows_for_signed_basis(
+    A: list[list[Fraction]],
+    b: list[Fraction],
+    row_multipliers: list[Fraction],
+) -> tuple[list[list[Fraction]], list[Fraction]]:
+    """
+    Moltiplica le righe per +1 o -1 in modo che una base ±I diventi +I.
+    """
+    A_norm = []
+    b_norm = []
+
+    for i, multiplier in enumerate(row_multipliers):
+        A_norm.append([multiplier * value for value in A[i]])
+        b_norm.append(multiplier * b[i])
+
+    return A_norm, b_norm
 
 def build_tableau_for_dual_simplex(
-    standard_problem: "StandardProblem", basis: list[int], options: SolverOptions
+    standard_problem: "StandardProblem",
+    basis: list[int],
+    row_multipliers: list[Fraction] | None,
+    options: SolverOptions,
 ) -> Optional["Tableau"]:
     """
-    Prepara il tableau per il simplesso duale secondo il Lez14.
-    
-    Procedimento:
-    1. Verifica ammissibilità duale (c >= 0)
-    2. Nega le righe con RHS < 0 per avere ammissibilità duale nel tableau
-    3. Costruisce il tableau canonico
-    
-    Args:
-        standard_problem: problema in forma standard
-        basis: base iniziale
-        options: opzioni del solver
-        
-    Returns:
-        Tableau pronto per il simplesso duale, o None se non ammissibile duale
+    Prepara il tableau per il simplesso duale.
+
+    Il simplesso duale richiede:
+    - una base canonica iniziale;
+    - ammissibilità duale: costi ridotti >= 0;
+    - ammissibilità primale non richiesta: RHS possono essere negativi.
+
+    Se la base trovata è una -identità, moltiplichiamo le righe necessarie
+    per trasformarla in +identità.
     """
-    # Verifica ammissibilità duale: c deve essere >= 0
-    # (altrimenti il tableau non sarà ammissibile duale)
-    if not all(c >= 0 for c in standard_problem.c):
-        # Non ammissibile duale: non possiamo usare il duale
-        return None
-    
-    # Copia il problema
     A = [row[:] for row in standard_problem.A]
     b = list(standard_problem.b)
-    
-    # Nega le righe con RHS < 0 (come nel Lez14)
-    # Questo prepara il tableau per il duale:
-    # - Ammissibilità duale: costi ridotti >= 0 (sono uguali a c)
-    # - Inammissibilità primale: RHS potenzialmente < 0
-    for i in range(len(b)):
-        if b[i] < 0:
-            A[i] = [-coeff for coeff in A[i]]
-            b[i] = -b[i]
-    
-    # Costruisci il tableau canonico
+
+    if row_multipliers is not None:
+        A, b = normalize_rows_for_signed_basis(A, b, row_multipliers)
+
     tableau = build_canonical_tableau(
         A=A,
         b=b,
@@ -63,9 +129,13 @@ def build_tableau_for_dual_simplex(
         phase=2,
         objective_name="z",
     )
-    
-    return tableau
 
+    # La condizione corretta è sui costi ridotti del tableau,
+    # non direttamente sui coefficienti c.
+    if not is_dual_feasible(tableau):
+        return None
+
+    return tableau
 
 def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveResult:
     """
@@ -133,101 +203,220 @@ def solve_problem(raw_text: str, options: SolverOptions | None = None) -> SolveR
     basis = find_identity_basis(standard_problem.A)
 
     # ===================================================================
-    # PERCORSO 1: SIMPLESSO DUALE (se richiesto esplicitamente)
+    # PERCORSO 1: TRASFORMAZIONE IN DUALE + SIMPLESSO DUALE
     # ===================================================================
     if options.method == "dual_simplex":
         method_step = Step(
-            title="Metodo risolutivo scelto: Simplesso Duale",
-            description="Verrà utilizzato il metodo del simplesso duale (da Lez14).",
-            notes=["Non verrà usata la fase I. Il duale parte da ammissibilità duale."],
+            title="Metodo risolutivo scelto: Duale + Simplesso Duale",
+            description=(
+                "Il problema in input viene trasformato nel suo duale. "
+                "Il problema duale viene poi portato in forma standard "
+                "e risolto con il metodo del simplesso duale."
+            ),
+            notes=[
+                "Non viene eseguita la fase I sul primale.",
+                "Il risultato riportato è ottenuto risolvendo il problema duale.",
+            ],
         )
         all_steps.append(method_step)
-        
-        # Il simplesso duale richiede una base identità naturale
-        # Se non la trovo, fallback alle due fasi (è un compromesso ragionevole)
-        if basis is None:
-            fallback_step = Step(
-                title="Fallback alle due fasi",
-                description="Non è stata trovata una base identità naturale. Il metodo duale richiede una base iniziale immediata. Fallback al metodo delle due fasi.",
-                notes=["Il duale non è applicabile per questo problema."],
+
+        # 1. Costruzione del problema duale dal problema originale
+        try:
+            dual_problem, dual_steps = compute_dual_problem(original_problem)
+            all_steps.extend(dual_steps)
+        except Exception as e:
+            return SolveResult(
+                status="input_error",
+                message=f"Errore nella costruzione del problema duale: {str(e)}",
+                original_problem=original_problem,
+                standard_problem=standard_problem,
+                steps=all_steps,
+                final_tableau=None,
+                solution=None,
+                optimal_value=None,
+                dual_problem=None,
+
             )
-            all_steps.append(fallback_step)
-            # Procedi al PERCORSO 3 (Due fasi) usando la logica sotto
-        else:
-            # Costruisci il tableau per il simplesso duale con la base identità trovata
-            try:
-                tableau = build_tableau_for_dual_simplex(standard_problem, basis, options)
-                if tableau is None:
-                    # Il problema non è ammissibile duale
-                    error_result = SolveResult(
-                        status="input_error",
-                        message="Il problema non è ammissibile duale. I coefficienti della funzione obiettivo (c) contengono valori negativi. Il simplesso duale richiede c >= 0.",
-                        original_problem=original_problem,
-                        standard_problem=standard_problem,
-                        steps=all_steps,
-                        final_tableau=None,
-                        solution=None,
-                        optimal_value=None,
+
+        # 2. Trasformazione del duale in forma standard
+        try:
+            dual_standard_problem, dual_standard_steps = to_standard_form(dual_problem)
+            all_steps.extend(dual_standard_steps)
+        except Exception as e:
+            return SolveResult(
+                status="input_error",
+                message=f"Errore nella trasformazione del duale in forma standard: {str(e)}",
+                original_problem=original_problem,
+                standard_problem=None,
+                steps=all_steps,
+                final_tableau=None,
+                solution=None,
+                optimal_value=None,
+                dual_problem=dual_problem,
+            )
+
+        # 3. Ricerca di una base +I oppure -I nel duale standardizzato
+        signed_basis_result = find_signed_identity_basis(dual_standard_problem.A)
+
+        if signed_basis_result is None:
+            all_steps.append(
+                Step(
+                    title="Base iniziale non trovata per il simplesso duale",
+                    description=(
+                        "Nel problema duale standardizzato non è stata trovata "
+                        "una base identità o meno-identità naturale."
+                    ),
+                    notes=[
+                        "Il simplesso duale richiede una base iniziale canonica.",
+                        "In questo caso puoi usare una fase ausiliaria oppure il metodo delle due fasi.",
+                    ],
+                )
+            )
+
+            return SolveResult(
+                status="dual_simplex_not_applicable",
+                message=(
+                    "Il problema è stato trasformato in duale, ma non è stata trovata "
+                    "una base iniziale ±I per avviare il simplesso duale."
+                ),
+                original_problem=original_problem,
+                standard_problem=dual_standard_problem,
+                steps=all_steps,
+                final_tableau=None,
+                solution=None,
+                optimal_value=None,
+                dual_problem=dual_problem,
+            )
+
+        dual_basis, row_multipliers = signed_basis_result
+
+        all_steps.append(
+            Step(
+                title="Base iniziale per simplesso duale trovata",
+                description=(
+                    "È stata trovata una base identità o meno-identità "
+                    "nel problema duale standardizzato."
+                ),
+                notes=[
+                    f"Base: {[dual_standard_problem.var_names[i] for i in dual_basis]}",
+                    f"Moltiplicatori di riga: {row_multipliers}",
+                ],
+            )
+        )
+
+        # 4. Costruzione del tableau per il simplesso duale
+        try:
+            tableau = build_tableau_for_dual_simplex(
+                dual_standard_problem,
+                dual_basis,
+                row_multipliers,
+                options,
+            )
+
+            if tableau is None:
+                all_steps.append(
+                    Step(
+                        title="Tableau non dualmente ammissibile",
+                        description=(
+                            "Il tableau iniziale del duale non soddisfa "
+                            "la condizione di ammissibilità duale."
+                        ),
+                        notes=[
+                            "I costi ridotti non sono tutti >= 0.",
+                            "Il simplesso duale diretto non può partire da questo tableau.",
+                        ],
                     )
-                    return error_result
-            except Exception as e:
-                error_result = SolveResult(
-                    status="input_error",
-                    message=f"Errore nella costruzione del tableau per il simplesso duale: {str(e)}",
+                )
+
+                return SolveResult(
+                    status="dual_simplex_not_applicable",
+                    message=(
+                        "Il duale è stato costruito, ma il tableau iniziale "
+                        "non è dualmente ammissibile."
+                    ),
                     original_problem=original_problem,
-                    standard_problem=standard_problem,
+                    standard_problem=dual_standard_problem,
                     steps=all_steps,
                     final_tableau=None,
                     solution=None,
                     optimal_value=None,
+                    dual_problem=dual_problem,
                 )
-                return error_result
-            
-            # Risolvi con il simplesso duale
-            final_tableau, simplex_steps, status = dual_simplex(tableau, options)
-            all_steps.extend(simplex_steps)
-            
-            # Estrai la soluzione
-            if status == "optimal":
-                solution = extract_solution(final_tableau, standard_problem)
-                optimal_value = get_objective_value(final_tableau)
-                
-                # Se il problema originale era di massimo, cambia il segno del valore ottimo
-                if original_problem.sense == "max":
-                    optimal_value = -optimal_value
-                
-                return SolveResult(
-                    status="optimal",
-                    message="Soluzione ottima trovata con il simplesso duale.",
-                    original_problem=original_problem,
-                    standard_problem=standard_problem,
-                    steps=all_steps,
-                    final_tableau=final_tableau,
-                    solution=solution,
-                    optimal_value=optimal_value,
-                )
-            elif status == "unbounded":
-                return SolveResult(
-                    status="unbounded",
-                    message="Il problema è illimitato.",
-                    original_problem=original_problem,
-                    standard_problem=standard_problem,
-                    steps=all_steps,
-                    final_tableau=final_tableau,
-                    solution=None,
-                    optimal_value=None,
-                )
-            else:
-                return SolveResult(
-                    status="iteration_limit",
-                    message="Limite massimo di iterazioni raggiunto.",
-                    original_problem=original_problem,
-                    standard_problem=standard_problem,
-                    steps=all_steps,
-                    final_tableau=final_tableau,
-                    solution=None,
-                    optimal_value=None,
-                )
+
+        except Exception as e:
+            return SolveResult(
+                status="input_error",
+                message=f"Errore nella costruzione del tableau duale: {str(e)}",
+                original_problem=original_problem,
+                standard_problem=dual_standard_problem,
+                steps=all_steps,
+                final_tableau=None,
+                solution=None,
+                optimal_value=None,
+                dual_problem=dual_problem,
+            )
+
+        # 5. Esecuzione del simplesso duale sul problema duale
+        final_tableau, simplex_steps, status = dual_simplex(tableau, options)
+        all_steps.extend(simplex_steps)
+
+        if status == "optimal":
+            solution = extract_solution(final_tableau, dual_standard_problem)
+            optimal_value = get_objective_value(final_tableau)
+
+            # Se il problema effettivamente risolto, cioè il duale,
+            # era un massimo, to_standard_form lo ha trasformato in minimo.
+            # Quindi bisogna cambiare segno al valore ottimo.
+            if dual_problem.sense == "max":
+                optimal_value = -optimal_value
+
+            return SolveResult(
+                status="optimal",
+                message=(
+                    "Soluzione ottima trovata trasformando il problema in duale "
+                    "e risolvendo il duale con il simplesso duale."
+                ),
+                original_problem=original_problem,
+                standard_problem=dual_standard_problem,
+                steps=all_steps,
+                final_tableau=final_tableau,
+                solution=solution,
+                optimal_value=optimal_value,
+                dual_problem=dual_problem,
+
+            )
+
+        elif status == "unbounded":
+            return SolveResult(
+                status="unbounded",
+                message=(
+                    "Il problema duale risulta illimitato durante il simplesso duale. "
+                    "Per dualità, questo può indicare inammissibilità del primale."
+                ),
+                original_problem=original_problem,
+                standard_problem=dual_standard_problem,
+                steps=all_steps,
+                final_tableau=final_tableau,
+                solution=None,
+                optimal_value=None,
+                dual_problem=dual_problem,
+            )
+
+        else:
+            return SolveResult(
+                status="iteration_limit",
+                message=(
+                    "Limite massimo di iterazioni raggiunto nel simplesso duale "
+                    "applicato al problema duale."
+                ),
+                original_problem=original_problem,
+                standard_problem=dual_standard_problem,
+                steps=all_steps,
+                final_tableau=final_tableau,
+                solution=None,
+                optimal_value=None,
+                dual_problem=dual_problem,
+            )
     
     # ===================================================================
     # PERCORSO 2: SIMPLESSO ORDINARIO (se base ammissibile)

@@ -107,9 +107,25 @@ def linear_problem_to_display(problem) -> str:
         lines.append(f"  {constraint_str} {sign} {fraction_to_str(b_val)}")
 
     lines.append("")
-    lines.append("x ≥ 0")
+
+    free_vars = set(getattr(problem, "free_vars", []))
+    nonnegative_vars = [
+        var for var in problem.var_names
+        if var not in free_vars
+    ]
+
+    if nonnegative_vars:
+        lines.append(
+            ", ".join(nonnegative_vars) + " ≥ 0"
+        )
+
+    if free_vars:
+        lines.append(
+            ", ".join(sorted(free_vars)) + " libere"
+        )
 
     return "\n".join(lines)
+
 
 
 def solution_to_table(solution: dict, var_names: list[str]) -> pd.DataFrame:
